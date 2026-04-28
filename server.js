@@ -271,7 +271,8 @@ function evaluateGuess(station, answer) {
     station,
     solved,
     distanceKm,
-    distanceLabel: distanceKm < 0.1 ? "0 km" : `${distanceKm.toFixed(1).replace(".", ",")} km`,
+    distanceLabel: formatDistance(distanceKm),
+    distanceBand: getDistanceBand(distanceKm),
     clues: {
       lines: getLineStatus(station, answer),
       bank: { className: station.bank === answer.bank ? "hit" : "miss" },
@@ -325,20 +326,11 @@ function getTransferStatus(guess, answer) {
 }
 
 function getDirectionLabel(from, to) {
-  const vertical = to.lat > from.lat + 0.002 ? "N" : to.lat < from.lat - 0.002 ? "S" : "";
-  const horizontal = to.lng > from.lng + 0.002 ? "E" : to.lng < from.lng - 0.002 ? "O" : "";
-  const direction = `${vertical}${horizontal}`;
-  const labels = {
-    N: "Nord",
-    S: "Sud",
-    E: "Est",
-    O: "Ouest",
-    NE: "Nord-est",
-    NO: "Nord-ouest",
-    SE: "Sud-est",
-    SO: "Sud-ouest"
-  };
-  return labels[direction] || "Tout près";
+  if (getDistanceKm(from, to) < 0.25) return "Tout près";
+
+  const labels = ["Nord", "Nord-est", "Est", "Sud-est", "Sud", "Sud-ouest", "Ouest", "Nord-ouest"];
+  const bearing = getBearing(from, to);
+  return labels[Math.round(bearing / 45) % labels.length];
 }
 
 function getDistanceKm(a, b) {
@@ -351,6 +343,28 @@ function getDistanceKm(a, b) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function getBearing(from, to) {
+  const lat1 = toRadians(from.lat);
+  const lat2 = toRadians(to.lat);
+  const deltaLng = toRadians(to.lng - from.lng);
+  const y = Math.sin(deltaLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function formatDistance(distanceKm) {
+  if (distanceKm < 0.05) return "0 m";
+  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`;
+  if (distanceKm < 10) return `${distanceKm.toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(distanceKm)} km`;
+}
+
+function getDistanceBand(distanceKm) {
+  if (distanceKm < 1) return "near";
+  if (distanceKm < 4) return "middle";
+  return "far";
 }
 
 function getDailyStation() {

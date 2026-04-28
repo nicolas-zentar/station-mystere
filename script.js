@@ -1,11 +1,33 @@
 const maxAttempts = 6;
+const personalStatsKey = "stationMysterePersonalStats:v1";
 const useBackend = location.protocol === "http:" || location.protocol === "https:";
-const bounds = {
-  minLat: Math.min(...stations.map((station) => station.lat)),
-  maxLat: Math.max(...stations.map((station) => station.lat)),
-  minLng: Math.min(...stations.map((station) => station.lng)),
-  maxLng: Math.max(...stations.map((station) => station.lng))
-};
+const seinePoints = [
+  { lat: 48.8279, lng: 2.2262 },
+  { lat: 48.8297, lng: 2.2517 },
+  { lat: 48.8409, lng: 2.2713 },
+  { lat: 48.8549, lng: 2.2868 },
+  { lat: 48.8620, lng: 2.3052 },
+  { lat: 48.8640, lng: 2.3204 },
+  { lat: 48.8613, lng: 2.3379 },
+  { lat: 48.8559, lng: 2.3522 },
+  { lat: 48.8473, lng: 2.3656 },
+  { lat: 48.8386, lng: 2.3822 },
+  { lat: 48.8259, lng: 2.4078 },
+  { lat: 48.8176, lng: 2.4314 },
+  { lat: 48.8048, lng: 2.4596 }
+];
+const peripheriquePoints = [
+  { lat: 48.8780, lng: 2.2790 },
+  { lat: 48.9006, lng: 2.3300 },
+  { lat: 48.8995, lng: 2.3852 },
+  { lat: 48.8770, lng: 2.4101 },
+  { lat: 48.8460, lng: 2.4149 },
+  { lat: 48.8170, lng: 2.3664 },
+  { lat: 48.8212, lng: 2.3141 },
+  { lat: 48.8388, lng: 2.2530 },
+  { lat: 48.8780, lng: 2.2790 }
+];
+const projection = createProjection([...stations, ...seinePoints, ...peripheriquePoints]);
 
 let target = null;
 let revealedTarget = null;
@@ -13,10 +35,14 @@ let gameId = null;
 let guesses = [];
 let finished = false;
 let currentMode = "daily";
-let currentStats = null;
+let activeGameKey = null;
+let personalStats = loadPersonalStats();
+let dailyStats = null;
+let mapZoomed = false;
 
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
+const miniMap = document.querySelector("#miniMap");
 const stationList = document.querySelector("#stationList");
 const guessesNode = document.querySelector("#guesses");
 const messageNode = document.querySelector("#message");
@@ -26,6 +52,7 @@ const dailyButton = document.querySelector("#dailyButton");
 const titleDailyButton = document.querySelector("#titleDailyButton");
 const shareButton = document.querySelector("#shareButton");
 const mapStatus = document.querySelector("#mapStatus");
+const mapGeography = document.querySelector("#mapGeography");
 const metroNetwork = document.querySelector("#metroNetwork");
 const mapPoints = document.querySelector("#mapPoints");
 const template = document.querySelector("#guessTemplate");
@@ -37,16 +64,25 @@ const answerValue = document.querySelector("#answerValue");
 const statStarted = document.querySelector("#statStarted");
 const statWinRate = document.querySelector("#statWinRate");
 const statAverage = document.querySelector("#statAverage");
+const statStreak = document.querySelector("#statStreak");
 const distributionNode = document.querySelector("#distribution");
 const topGuessesNode = document.querySelector("#topGuesses");
+const dailyStarted = document.querySelector("#dailyStarted");
+const dailyWinRate = document.querySelector("#dailyWinRate");
+const dailyAverage = document.querySelector("#dailyAverage");
+const dailyDistribution = document.querySelector("#dailyDistribution");
+const dailyTopGuesses = document.querySelector("#dailyTopGuesses");
 
 stationList.innerHTML = stations
   .map((station) => `<option value="${station.name}"></option>`)
   .join("");
 
 stationCount.textContent = `${stations.length} stations`;
+renderGeography();
 renderMetroNetwork();
 renderBaseMap();
+renderPersonalStats();
+renderDailyStats(null);
 
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -63,6 +99,14 @@ dailyButton.addEventListener("click", () => {
 
 titleDailyButton.addEventListener("click", () => {
   startGame("daily");
+});
+
+miniMap.addEventListener("click", toggleMapZoom);
+miniMap.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    toggleMapZoom();
+  }
 });
 
 shareButton.addEventListener("click", async () => {
@@ -122,12 +166,14 @@ async function startBackendGame(mode) {
   revealedTarget = null;
   guesses = [];
   finished = false;
-  currentStats = null;
+  activeGameKey = game.gameId;
+  dailyStats = null;
   shareButton.disabled = true;
   dataMode.textContent = currentMode === "daily" ? "Partie du jour" : "Mode aléatoire";
   setMessage(currentMode === "daily" ? "Partie du jour prête." : "Nouvelle station aléatoire.", "");
   render();
-  await refreshStats();
+  renderPersonalStats();
+  await refreshDailyStats();
   guessInput.focus();
 }
 
@@ -138,13 +184,15 @@ function startLocalGame(nextTarget, mode) {
   revealedTarget = null;
   guesses = [];
   finished = false;
-  currentStats = null;
+  activeGameKey = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  dailyStats = null;
   guessInput.value = "";
   shareButton.disabled = true;
   dataMode.textContent = mode === "daily" ? "Partie du jour" : "Mode aléatoire";
   setMessage(mode === "daily" ? "Prêt pour la station du jour." : "Nouvelle station aléatoire.", "");
   render();
-  renderStats(null);
+  renderPersonalStats();
+  renderDailyStats(null);
   guessInput.focus();
 }
 
@@ -181,12 +229,16 @@ async function submitBackendGuess(guess) {
   guesses = data.guesses;
   finished = data.finished;
   revealedTarget = data.target || null;
-  currentStats = data.stats || currentStats;
+  dailyStats = data.stats || dailyStats;
   guessInput.value = "";
   shareButton.disabled = !finished;
+  if (finished) {
+    recordPersonalResult(revealedTarget);
+  }
   setMessage(data.message, data.status || "");
   render();
-  renderStats(currentStats);
+  renderPersonalStats(revealedTarget);
+  renderDailyStats(dailyStats, revealedTarget);
 }
 
 function submitLocalGuess(value) {
@@ -209,21 +261,22 @@ function submitLocalGuess(value) {
   if (attempt.solved) {
     finished = true;
     revealedTarget = target;
-    currentStats = getLocalStats(target);
     shareButton.disabled = false;
+    recordPersonalResult(revealedTarget);
     setMessage(`Trouvé en ${guesses.length} essai${guesses.length > 1 ? "s" : ""}.`, "success");
   } else if (guesses.length >= maxAttempts) {
     finished = true;
     revealedTarget = target;
-    currentStats = getLocalStats(target);
     shareButton.disabled = false;
+    recordPersonalResult(revealedTarget);
     setMessage(`Perdu : c'était ${target.name}.`, "error");
   } else {
     setMessage("Indice ajouté.", "");
   }
 
   render();
-  renderStats(currentStats);
+  renderPersonalStats(revealedTarget);
+  renderDailyStats(null, revealedTarget);
 }
 
 function render() {
@@ -235,36 +288,35 @@ function render() {
   });
 
   renderMap();
-  mapStatus.textContent = guesses.length
+  mapStatus.textContent = mapZoomed ? "Carte zoomée" : guesses.length
     ? `${guesses.length} tentative${guesses.length > 1 ? "s" : ""} placée${guesses.length > 1 ? "s" : ""}`
     : "Aucune tentative";
 }
 
-function renderStats(stats) {
-  if (!stats) {
-    answerStatus.textContent = "Réponse masquée";
-    answerValue.textContent = finished && revealedTarget ? revealedTarget.name : "À débloquer";
-    statStarted.textContent = "—";
-    statWinRate.textContent = "—";
-    statAverage.textContent = "—";
-    renderDistribution([0, 0, 0, 0, 0, 0]);
-    topGuessesNode.textContent = "Les statistiques apparaissent avec la version en ligne.";
-    return;
-  }
-
-  const answer = stats.answer || revealedTarget;
+function renderPersonalStats(answer = revealedTarget) {
   answerStatus.textContent = answer ? "Réponse révélée" : "Réponse masquée";
-  answerValue.textContent = answer ? answer.name : "À débloquer";
-  statStarted.textContent = stats.started;
-  statWinRate.textContent = Number.isFinite(stats.winRate) ? `${stats.winRate}%` : "—";
-  statAverage.textContent = stats.averageAttempts;
-  renderDistribution(stats.distribution || [0, 0, 0, 0, 0, 0]);
-  renderTopGuesses(stats.topGuesses || [], stats.unlocked);
+  statStarted.textContent = personalStats.played;
+  statWinRate.textContent = personalStats.played ? `${Math.round((personalStats.wins / personalStats.played) * 100)}%` : "—";
+  statAverage.textContent = personalStats.wins ? (personalStats.totalWinAttempts / personalStats.wins).toFixed(1).replace(".", ",") : "—";
+  statStreak.textContent = personalStats.currentStreak;
+  renderDistribution(personalStats.distribution);
+  renderTopGuesses(getPersonalTopGuesses());
 }
 
-function renderDistribution(distribution) {
+function renderDailyStats(stats, answer = revealedTarget) {
+  const unlocked = Boolean(answer || stats?.answer);
+  const dailyAnswer = answer || stats?.answer || null;
+  answerValue.textContent = dailyAnswer ? dailyAnswer.name : "À débloquer";
+  dailyStarted.textContent = stats?.started ?? "—";
+  dailyWinRate.textContent = stats ? `${stats.winRate}%` : "—";
+  dailyAverage.textContent = stats?.averageAttempts ?? "—";
+  renderDistribution(stats?.distribution || [0, 0, 0, 0, 0, 0], dailyDistribution);
+  renderTopGuesses(stats?.topGuesses || [], dailyTopGuesses, unlocked);
+}
+
+function renderDistribution(distribution, node = distributionNode) {
   const max = Math.max(...distribution, 1);
-  distributionNode.innerHTML = "";
+  node.innerHTML = "";
 
   distribution.forEach((count, index) => {
     const row = document.createElement("div");
@@ -284,20 +336,22 @@ function renderDistribution(distribution) {
 
     barWrap.append(bar);
     row.append(label, barWrap, value);
-    distributionNode.append(row);
+    node.append(row);
   });
 }
 
-function renderTopGuesses(topGuesses, unlocked = true) {
-  topGuessesNode.innerHTML = "";
+function renderTopGuesses(topGuesses, node = topGuessesNode, unlocked = true) {
+  node.innerHTML = "";
 
   if (!unlocked) {
-    topGuessesNode.textContent = "Débloquées à la fin de ta partie.";
+    node.textContent = "Débloquées à la fin de ta partie.";
     return;
   }
 
   if (!topGuesses.length) {
-    topGuessesNode.textContent = "Aucune tentative publique pour l'instant.";
+    node.textContent = node === topGuessesNode
+      ? "Tes stations tentées apparaîtront ici."
+      : "Aucune tentative publique pour l'instant.";
     return;
   }
 
@@ -305,8 +359,114 @@ function renderTopGuesses(topGuesses, unlocked = true) {
     const chip = document.createElement("span");
     chip.className = "guess-chip";
     chip.textContent = `${guess.name} · ${guess.count}`;
-    topGuessesNode.append(chip);
+    node.append(chip);
   });
+}
+
+async function refreshDailyStats() {
+  if (!useBackend || !gameId || currentMode !== "daily") {
+    renderDailyStats(dailyStats, revealedTarget);
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/stats?gameId=${encodeURIComponent(gameId)}`);
+    const stats = await response.json();
+    if (response.ok) {
+      dailyStats = stats;
+      renderDailyStats(dailyStats, revealedTarget);
+    }
+  } catch {
+    renderDailyStats(dailyStats, revealedTarget);
+  }
+}
+
+function toggleMapZoom() {
+  mapZoomed = !mapZoomed;
+  miniMap.classList.toggle("is-zoomed", mapZoomed);
+  miniMap.setAttribute("aria-label", mapZoomed ? "Dézoomer la carte" : "Zoomer la carte");
+  mapStatus.textContent = mapZoomed ? "Carte zoomée" : guesses.length
+    ? `${guesses.length} tentative${guesses.length > 1 ? "s" : ""} placée${guesses.length > 1 ? "s" : ""}`
+    : "Aucune tentative";
+}
+
+function recordPersonalResult(answer) {
+  if (!answer || !activeGameKey || personalStats.recordedGames.includes(activeGameKey)) return;
+
+  const won = guesses.at(-1)?.solved === true;
+  personalStats.played += 1;
+  personalStats.recordedGames.push(activeGameKey);
+  personalStats.recordedGames = personalStats.recordedGames.slice(-80);
+
+  if (won) {
+    personalStats.wins += 1;
+    personalStats.currentStreak += 1;
+    personalStats.bestStreak = Math.max(personalStats.bestStreak, personalStats.currentStreak);
+    personalStats.totalWinAttempts += guesses.length;
+    personalStats.distribution[guesses.length - 1] += 1;
+  } else {
+    personalStats.losses += 1;
+    personalStats.currentStreak = 0;
+  }
+
+  guesses.forEach((guess) => {
+    personalStats.guesses[guess.station.name] = (personalStats.guesses[guess.station.name] || 0) + 1;
+  });
+
+  personalStats.lastResults.unshift({
+    date: new Date().toISOString(),
+    mode: currentMode,
+    answer: answer.name,
+    won,
+    attempts: guesses.length
+  });
+  personalStats.lastResults = personalStats.lastResults.slice(0, 20);
+
+  savePersonalStats();
+}
+
+function getPersonalTopGuesses() {
+  return Object.entries(personalStats.guesses)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, count }));
+}
+
+function loadPersonalStats() {
+  const fallback = {
+    played: 0,
+    wins: 0,
+    losses: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+    totalWinAttempts: 0,
+    distribution: [0, 0, 0, 0, 0, 0],
+    guesses: {},
+    lastResults: [],
+    recordedGames: []
+  };
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(personalStatsKey));
+    if (!parsed || typeof parsed !== "object") return fallback;
+
+    return {
+      ...fallback,
+      ...parsed,
+      distribution: Array.isArray(parsed.distribution) && parsed.distribution.length === 6
+        ? parsed.distribution
+        : fallback.distribution,
+      guesses: parsed.guesses && typeof parsed.guesses === "object" ? parsed.guesses : {},
+      lastResults: Array.isArray(parsed.lastResults) ? parsed.lastResults : [],
+      recordedGames: Array.isArray(parsed.recordedGames) ? parsed.recordedGames : []
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function savePersonalStats() {
+  localStorage.setItem(personalStatsKey, JSON.stringify(personalStats));
 }
 
 function renderGuess(attempt) {
@@ -314,7 +474,9 @@ function renderGuess(attempt) {
   const station = attempt.station;
 
   item.querySelector(".guess-name").textContent = station.name;
-  item.querySelector(".distance").textContent = attempt.distanceLabel;
+  const distanceNode = item.querySelector(".distance");
+  distanceNode.textContent = attempt.distanceLabel;
+  distanceNode.className = `distance ${attempt.distanceBand || getDistanceBand(attempt.distanceKm)}`;
 
   setTile(
     item.querySelector(".lines"),
@@ -355,36 +517,6 @@ function renderGuess(attempt) {
   return item;
 }
 
-async function refreshStats() {
-  if (!useBackend || !gameId || currentMode !== "daily") {
-    renderStats(currentStats);
-    return;
-  }
-
-  try {
-    const response = await fetch(`/api/stats?gameId=${encodeURIComponent(gameId)}`);
-    const stats = await response.json();
-    if (response.ok) {
-      currentStats = stats;
-      renderStats(currentStats);
-    }
-  } catch {
-    renderStats(currentStats);
-  }
-}
-
-function getLocalStats(answer) {
-  return {
-    unlocked: true,
-    started: "—",
-    winRate: "—",
-    averageAttempts: "—",
-    distribution: [0, 0, 0, 0, 0, 0],
-    topGuesses: guesses.map((guess) => ({ name: guess.station.name, count: 1 })),
-    answer
-  };
-}
-
 function setTile(node, className, category, value, description) {
   const ariaValue = Array.isArray(value) ? value.join(", ") : value;
   node.className = `tile ${className}${category === "Direction" ? " direction" : ""}`;
@@ -411,6 +543,32 @@ function setTile(node, className, category, value, description) {
   }
 
   node.append(categoryNode, valueNode);
+}
+
+function renderGeography() {
+  if (!mapGeography) return;
+
+  mapGeography.innerHTML = "";
+  const peripherique = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  peripherique.setAttribute("class", "peripherique-line");
+  peripherique.setAttribute("d", pointsToPath(peripheriquePoints, true));
+
+  const seineShadow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  seineShadow.setAttribute("class", "seine-shadow");
+  seineShadow.setAttribute("d", pointsToSmoothPath(seinePoints));
+
+  const seine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  seine.setAttribute("class", "seine");
+  seine.setAttribute("d", pointsToSmoothPath(seinePoints));
+
+  const seineLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  const labelPoint = project({ lat: 48.858, lng: 2.335 });
+  seineLabel.setAttribute("class", "river-label");
+  seineLabel.setAttribute("x", labelPoint.x);
+  seineLabel.setAttribute("y", labelPoint.y - 10);
+  seineLabel.textContent = "Seine";
+
+  mapGeography.append(peripherique, seineShadow, seine, seineLabel);
 }
 
 function renderBaseMap() {
@@ -494,7 +652,8 @@ function evaluateGuess(station, answer) {
     station,
     solved,
     distanceKm,
-    distanceLabel: distanceKm < 0.1 ? "0 km" : `${distanceKm.toFixed(1).replace(".", ",")} km`,
+    distanceLabel: formatDistance(distanceKm),
+    distanceBand: getDistanceBand(distanceKm),
     clues: {
       lines: getLineStatus(station, answer),
       bank: { className: station.bank === answer.bank ? "hit" : "miss" },
@@ -548,20 +707,11 @@ function getTransferStatus(guess, answer) {
 }
 
 function getDirectionLabel(from, to) {
-  const vertical = to.lat > from.lat + 0.002 ? "N" : to.lat < from.lat - 0.002 ? "S" : "";
-  const horizontal = to.lng > from.lng + 0.002 ? "E" : to.lng < from.lng - 0.002 ? "O" : "";
-  const direction = `${vertical}${horizontal}`;
-  const labels = {
-    N: "Nord",
-    S: "Sud",
-    E: "Est",
-    O: "Ouest",
-    NE: "Nord-est",
-    NO: "Nord-ouest",
-    SE: "Sud-est",
-    SO: "Sud-ouest"
-  };
-  return labels[direction] || "Tout près";
+  if (getDistanceKm(from, to) < 0.25) return "Tout près";
+
+  const labels = ["Nord", "Nord-est", "Est", "Sud-est", "Sud", "Sud-ouest", "Ouest", "Nord-ouest"];
+  const bearing = getBearing(from, to);
+  return labels[Math.round(bearing / 45) % labels.length];
 }
 
 function getDistanceKm(a, b) {
@@ -576,10 +726,88 @@ function getDistanceKm(a, b) {
   return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
+function getBearing(from, to) {
+  const lat1 = toRadians(from.lat);
+  const lat2 = toRadians(to.lat);
+  const deltaLng = toRadians(to.lng - from.lng);
+  const y = Math.sin(deltaLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function formatDistance(distanceKm) {
+  if (distanceKm < 0.05) return "0 m";
+  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`;
+  if (distanceKm < 10) return `${distanceKm.toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(distanceKm)} km`;
+}
+
+function getDistanceBand(distanceKm) {
+  if (distanceKm < 1) return "near";
+  if (distanceKm < 4) return "middle";
+  return "far";
+}
+
 function project(station) {
-  const x = 54 + ((station.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 312;
-  const y = 368 - ((station.lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * 316;
+  const raw = geoToPlane(station);
+  const x = projection.center + (raw.x - projection.midX) * projection.scale;
+  const y = projection.center - (raw.y - projection.midY) * projection.scale;
   return { x, y };
+}
+
+function createProjection(points) {
+  const centerLat = points.reduce((sum, point) => sum + point.lat, 0) / points.length;
+  const cosLat = Math.cos(toRadians(centerLat));
+  const planePoints = points.map((point) => geoToPlane(point, cosLat));
+  const minX = Math.min(...planePoints.map((point) => point.x));
+  const maxX = Math.max(...planePoints.map((point) => point.x));
+  const minY = Math.min(...planePoints.map((point) => point.y));
+  const maxY = Math.max(...planePoints.map((point) => point.y));
+  const drawable = 336;
+
+  return {
+    cosLat,
+    center: 210,
+    midX: (minX + maxX) / 2,
+    midY: (minY + maxY) / 2,
+    scale: Math.min(drawable / (maxX - minX), drawable / (maxY - minY))
+  };
+}
+
+function geoToPlane(point, cosLat = projection?.cosLat) {
+  return {
+    x: point.lng * cosLat,
+    y: point.lat
+  };
+}
+
+function pointsToPath(points, closed = false) {
+  const projected = points.map(project);
+  const [first, ...rest] = projected;
+  const commands = [`M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`];
+  rest.forEach((point) => {
+    commands.push(`L ${point.x.toFixed(1)} ${point.y.toFixed(1)}`);
+  });
+  if (closed) commands.push("Z");
+  return commands.join(" ");
+}
+
+function pointsToSmoothPath(points) {
+  const projected = points.map(project);
+  if (projected.length < 3) return pointsToPath(points);
+
+  let path = `M ${projected[0].x.toFixed(1)} ${projected[0].y.toFixed(1)}`;
+  for (let index = 1; index < projected.length - 1; index += 1) {
+    const current = projected[index];
+    const next = projected[index + 1];
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+    path += ` Q ${current.x.toFixed(1)} ${current.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+  }
+
+  const last = projected.at(-1);
+  path += ` T ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+  return path;
 }
 
 function getDailyStation() {

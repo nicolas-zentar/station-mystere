@@ -184,12 +184,30 @@ h1 {
   background:
     radial-gradient(circle at 48% 42%, rgba(255, 255, 255, 0.72), transparent 46%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(242, 237, 229, 0.2));
+  cursor: zoom-in;
+  overflow: hidden;
+  transition: min-height 0.22s ease, background-color 0.22s ease;
 }
 
 .mini-map svg {
   width: min(100%, 620px);
   aspect-ratio: 1;
   display: block;
+  transition: transform 0.24s ease;
+}
+
+.mini-map.is-zoomed {
+  min-height: min(82vh, 820px);
+  cursor: zoom-out;
+}
+
+.mini-map.is-zoomed svg {
+  transform: scale(1.72);
+}
+
+.mini-map:focus-visible {
+  outline: 3px solid rgba(33, 102, 177, 0.28);
+  outline-offset: -6px;
 }
 
 .map-ground {
@@ -198,27 +216,46 @@ h1 {
   stroke-width: 1.4;
 }
 
-.seine {
-  fill: none;
-  stroke: #5da6cf;
-  stroke-width: 13;
-  stroke-linecap: round;
-  opacity: 0.68;
+.peripherique-line {
+  fill: rgba(246, 239, 226, 0.42);
+  stroke: rgba(47, 48, 53, 0.42);
+  stroke-width: 2.2;
+  stroke-dasharray: 4 6;
 }
 
-.ring-road {
+.seine-shadow,
+.seine {
   fill: none;
-  stroke: rgba(47, 48, 53, 0.44);
-  stroke-width: 2.6;
-  stroke-dasharray: 5 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.seine-shadow {
+  stroke: rgba(255, 255, 255, 0.86);
+  stroke-width: 15;
+}
+
+.seine {
+  stroke: #5da6cf;
+  stroke-width: 9;
+  opacity: 0.78;
+}
+
+.river-label {
+  fill: rgba(30, 97, 139, 0.78);
+  font-size: 10px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.86);
+  stroke-width: 3;
 }
 
 .network-line {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 4.5;
-  opacity: 0.62;
+  stroke-width: 3.8;
+  opacity: 0.54;
 }
 
 .network-line.m-1 {
@@ -293,9 +330,9 @@ h1 {
 }
 
 .station-dot {
-  fill: rgba(47, 48, 53, 0.5);
+  fill: rgba(47, 48, 53, 0.56);
   stroke: #fff;
-  stroke-width: 0.8;
+  stroke-width: 0.65;
 }
 
 .hub-dot {
@@ -512,9 +549,38 @@ input:focus {
 
 .stats-content {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1.1fr) minmax(220px, 1fr) minmax(220px, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
   align-items: start;
+}
+
+.stats-section {
+  display: grid;
+  gap: 10px;
+  min-height: 100%;
+  padding: 12px;
+  border: 1px solid rgba(216, 210, 199, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.stats-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stats-section-title h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.stats-section-title span {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
 .stats-head,
@@ -556,8 +622,15 @@ input:focus {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.personal-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.daily-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stats-grid div {
@@ -747,6 +820,18 @@ input:focus {
   white-space: nowrap;
 }
 
+.distance.near {
+  color: var(--green);
+}
+
+.distance.middle {
+  color: #9b6b08;
+}
+
+.distance.far {
+  color: var(--red);
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -919,9 +1004,10 @@ input:focus {
   }
 
   .stats-content {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
+  .personal-grid,
   .admin-day-card .stats-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -959,6 +1045,8 @@ input:focus {
 
   .stats-content,
   .stats-grid,
+  .personal-grid,
+  .daily-grid,
   .admin-day-card .stats-grid {
     grid-template-columns: 1fr;
   }

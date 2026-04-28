@@ -25,7 +25,7 @@
 
       <section class="play-area">
         <aside class="map-panel" aria-label="Carte des essais">
-          <div class="mini-map" id="miniMap">
+          <div class="mini-map" id="miniMap" role="button" tabindex="0" aria-label="Zoomer ou dézoomer la carte">
             <svg viewBox="0 0 420 420" role="img" aria-label="Carte stylisée des stations du métro parisien">
               <defs>
                 <linearGradient id="mapGlow" x1="0" x2="1" y1="0" y2="1">
@@ -34,8 +34,7 @@
                 </linearGradient>
               </defs>
               <rect class="map-ground" x="28" y="28" width="364" height="364" rx="22"></rect>
-              <path class="seine" d="M38 229c47-34 91-28 137-14 55 17 91 3 132-18 34-17 53-15 75-6"></path>
-              <path class="ring-road" d="M119 107c49-39 128-45 179-4 48 38 63 106 36 164-28 61-98 94-165 77-65-17-109-77-104-143 3-39 22-72 54-94Z"></path>
+              <g id="mapGeography"></g>
               <g id="metroNetwork"></g>
               <text class="map-label" x="210" y="63" text-anchor="middle">Nord</text>
               <text class="map-label" x="210" y="374" text-anchor="middle">Sud</text>
@@ -86,34 +85,70 @@
         </section>
       </section>
 
-      <section class="stats-panel stats-panel-wide" aria-label="Statistiques du jour">
+      <section class="stats-panel stats-panel-wide" aria-label="Statistiques personnelles">
         <div class="stats-head">
-          <h2>Stats du jour</h2>
-          <span id="answerStatus">Réponse masquée</span>
+          <h2>Statistiques</h2>
+          <span id="answerStatus">Partie en cours</span>
         </div>
         <div class="stats-content">
-          <div class="answer-box">
-            <span>Réponse</span>
-            <strong id="answerValue">À débloquer</strong>
+          <div class="stats-section">
+            <div class="stats-section-title">
+              <h3>Moi</h3>
+              <span>Depuis ce navigateur</span>
+            </div>
+            <div class="stats-grid personal-grid">
+              <div>
+                <span>Jouées</span>
+                <strong id="statStarted">0</strong>
+              </div>
+              <div>
+                <span>Réussite</span>
+                <strong id="statWinRate">0%</strong>
+              </div>
+              <div>
+                <span>Moyenne</span>
+                <strong id="statAverage">—</strong>
+              </div>
+              <div>
+                <span>Série</span>
+                <strong id="statStreak">0</strong>
+              </div>
+            </div>
+            <div class="distribution" id="distribution" aria-label="Distribution personnelle des victoires"></div>
+            <div class="top-guesses">
+              <span>Mes stations tentées</span>
+              <div id="topGuesses">Tes stations tentées apparaîtront ici.</div>
+            </div>
           </div>
-          <div class="stats-grid">
-            <div>
-              <span>Parties</span>
-              <strong id="statStarted">0</strong>
+
+          <div class="stats-section">
+            <div class="stats-section-title">
+              <h3>Station du jour</h3>
+              <span>Joueurs du jour</span>
             </div>
-            <div>
-              <span>Réussite</span>
-              <strong id="statWinRate">0%</strong>
+            <div class="answer-box">
+              <span>Réponse</span>
+              <strong id="answerValue">À débloquer</strong>
             </div>
-            <div>
-              <span>Moyenne</span>
-              <strong id="statAverage">—</strong>
+            <div class="stats-grid daily-grid">
+              <div>
+                <span>Parties</span>
+                <strong id="dailyStarted">0</strong>
+              </div>
+              <div>
+                <span>Réussite</span>
+                <strong id="dailyWinRate">0%</strong>
+              </div>
+              <div>
+                <span>Moyenne</span>
+                <strong id="dailyAverage">—</strong>
+              </div>
             </div>
-          </div>
-          <div class="distribution" id="distribution" aria-label="Distribution des victoires"></div>
-          <div class="top-guesses">
-            <span>Tentatives fréquentes</span>
-            <div id="topGuesses">Aucune tentative publique pour l'instant.</div>
+            <div class="distribution" id="dailyDistribution" aria-label="Distribution des victoires du jour"></div>
+            <div class="top-guesses">
+              <span>Tentatives du jour</span>
+              <div id="dailyTopGuesses">Débloquées à la fin de ta partie.</div>
+            </div>
           </div>
         </div>
       </section>
