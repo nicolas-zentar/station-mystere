@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Station Mystère</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="topbar" aria-label="En-tête du jeu">
+        <div class="title-lockup">
+          <p class="kicker">Paris, 6 essais</p>
+          <h1>Station Mystère</h1>
+          <div class="meta-row" aria-label="Informations de partie">
+            <span id="stationCount">321 stations</span>
+            <span id="dataMode">Chargement</span>
+          </div>
+        </div>
+        <div class="score-pill" aria-live="polite">
+          <span class="score-label">Essais</span>
+          <span class="score-count"><strong id="attemptCount">0</strong><span>/6</span></span>
+        </div>
+      </section>
+
+      <section class="play-area">
+        <aside class="map-panel" aria-label="Carte des essais">
+          <div class="mini-map" id="miniMap">
+            <svg viewBox="0 0 420 420" role="img" aria-label="Carte stylisée de Paris">
+              <path class="city-shape" d="M211 34c40 0 72 12 102 37 35 29 62 60 71 101 9 40 2 87-19 121-23 38-61 64-106 79-48 16-103 18-145-9-42-26-66-77-77-126-11-50-7-101 23-139 32-40 93-64 151-64Z"></path>
+              <path class="seine" d="M27 254c62-42 98-18 138-13 48 6 71-28 111-32 42-4 65 19 117-17"></path>
+              <path class="metro-line line-1" d="M65 218h289"></path>
+              <path class="metro-line line-2" d="M93 126c69 32 158 31 234-4"></path>
+              <path class="metro-line line-4" d="M207 65c-20 76-18 193 8 287"></path>
+              <path class="metro-line line-6" d="M86 293c74 58 187 58 260-5"></path>
+              <path class="metro-line line-8" d="M95 98c54 54 121 109 232 187"></path>
+              <path class="metro-line line-14" d="M290 62c-17 102-51 199-91 300"></path>
+              <g id="mapPoints"></g>
+            </svg>
+          </div>
+          <div class="map-footer">
+            <span id="mapStatus">Aucune tentative</span>
+            <button class="icon-button" id="dailyButton" type="button" aria-label="Revenir à la station du jour" title="Station du jour">
+              <span aria-hidden="true">⌂</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="game-panel" aria-label="Partie">
+          <form class="guess-form" id="guessForm">
+            <div class="input-wrap">
+              <label for="guessInput">Station</label>
+              <input id="guessInput" name="guess" list="stationList" autocomplete="off" placeholder="Ex. République">
+              <datalist id="stationList"></datalist>
+            </div>
+            <button class="primary-button" type="submit">Valider</button>
+          </form>
+
+          <div class="message" id="message" aria-live="polite"></div>
+
+          <div class="legend" aria-label="Légende">
+            <span><i class="hit"></i>Exact</span>
+            <span><i class="near"></i>Proche</span>
+            <span><i class="miss"></i>Loin</span>
+          </div>
+
+          <div class="category-help" aria-label="Aide sur les catégories">
+            <span><strong>Rive</strong> Droite, Gauche, Île ou Hors Paris</span>
+            <span><strong>Lieu</strong> arrondissement parisien ou commune ; ↑ ou ↓ indique si la cible a un numéro d'arrondissement plus élevé ou plus faible</span>
+            <span><strong>Direction</strong> position de la station mystère depuis votre essai</span>
+          </div>
+
+          <div class="guesses" id="guesses" aria-live="polite"></div>
+
+          <div class="actions">
+            <button class="secondary-button" id="randomButton" type="button">Nouvelle station</button>
+            <button class="secondary-button" id="shareButton" type="button" disabled>Partager</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <template id="guessTemplate">
+      <article class="guess-card">
+        <div class="guess-head">
+          <strong class="guess-name"></strong>
+          <span class="distance"></span>
+        </div>
+        <div class="tiles">
+          <span class="tile lines"></span>
+          <span class="tile bank"></span>
+          <span class="tile arr"></span>
+          <span class="tile transfers"></span>
+          <span class="tile direction"></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="stations.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

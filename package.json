@@ -1,0 +1,12 @@
+{
+  "name": "station-mystere",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mini-jeu de devinette autour des stations du métro parisien.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
