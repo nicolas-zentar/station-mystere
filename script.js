@@ -102,6 +102,7 @@ const personalStatNodes = {
   }
 };
 const randomDifficultyStats = document.querySelector("#randomDifficultyStats");
+const personalHistory = document.querySelector("#personalHistory");
 const dailyStarted = document.querySelector("#dailyStarted");
 const dailyWinRate = document.querySelector("#dailyWinRate");
 const dailyAverage = document.querySelector("#dailyAverage");
@@ -428,6 +429,7 @@ function renderPersonalStats(answer = revealedTarget) {
   answerStatus.textContent = answer ? "Réponse révélée" : "Réponse masquée";
   renderPersonalModeStats("daily");
   renderPersonalModeStats("random");
+  renderPersonalHistory();
 }
 
 function renderPersonalModeStats(mode) {
@@ -525,6 +527,62 @@ function renderTopGuesses(topGuesses, node, unlocked = true) {
     chip.textContent = `${guess.name} · ${guess.count}`;
     node.append(chip);
   });
+}
+
+function renderPersonalHistory() {
+  const results = [
+    ...personalStats.modes.daily.lastResults,
+    ...personalStats.modes.random.lastResults
+  ]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 12);
+
+  personalHistory.innerHTML = "";
+
+  if (!results.length) {
+    personalHistory.textContent = "Tes dernières parties apparaîtront ici.";
+    return;
+  }
+
+  results.forEach((result) => {
+    const row = document.createElement("article");
+    row.className = `history-row ${result.won ? "won" : "lost"}`;
+
+    const main = document.createElement("div");
+    main.className = "history-main";
+
+    const title = document.createElement("strong");
+    title.textContent = result.answer;
+
+    const meta = document.createElement("span");
+    meta.textContent = [
+      result.mode === "daily" ? "Journalier" : `Aléatoire ${difficultyLabels[result.difficulty] || ""}`.trim(),
+      formatHistoryDate(result.date)
+    ].join(" · ");
+
+    const score = document.createElement("span");
+    score.className = "history-score";
+    score.textContent = result.won
+      ? `${result.attempts}/${defaultMaxAttempts}`
+      : `X/${defaultMaxAttempts}`;
+
+    main.append(title, meta);
+    row.append(main, score);
+    personalHistory.append(row);
+  });
+}
+
+function formatHistoryDate(value) {
+  try {
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
 }
 
 async function refreshDailyStats() {

@@ -707,6 +707,75 @@ input:focus {
   font-size: 1.2rem;
 }
 
+.personal-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(216, 210, 199, 0.72);
+}
+
+.history-list {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px;
+  border: 1px solid rgba(216, 210, 199, 0.72);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.history-row.won {
+  border-left-color: var(--green);
+}
+
+.history-row.lost {
+  border-left-color: var(--red);
+}
+
+.history-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.history-main strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-main span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.history-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  min-height: 30px;
+  border-radius: 8px;
+  background: rgba(47, 48, 53, 0.08);
+  color: var(--ink);
+  font-weight: 900;
+}
+
 .stats-head,
 .answer-box,
 .stats-grid {
