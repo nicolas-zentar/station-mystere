@@ -73,6 +73,10 @@ function renderModeStats(modeData, node) {
         <div><span>Défaites</span><strong>${day.losses}</strong></div>
         <div><span>Moyenne</span><strong>${day.averageAttempts}</strong></div>
       </div>
+      <div class="admin-hourly">
+        <span>Parties terminées par heure</span>
+        <div>${renderHourly(day.completedHours || [])}</div>
+      </div>
       <div class="admin-distribution">${renderDistribution(day.distribution)}</div>
       ${modeData.mode === "random" ? renderDifficultyBreakdown(day.difficulties) : ""}
       <div class="top-guesses">
@@ -175,6 +179,17 @@ function renderDistribution(distribution) {
       <div class="distribution-bar"><i style="width: ${Math.max((count / max) * 100, count ? 9 : 0)}%"></i></div>
       <strong>${count}</strong>
     </div>
+  `).join("");
+}
+
+function renderHourly(hours) {
+  const normalized = Array.from({ length: 24 }, (_, index) => Number(hours[index]) || 0);
+  const max = Math.max(...normalized, 1);
+  return normalized.map((count, hour) => `
+    <span title="${hour}h · ${count} partie${count > 1 ? "s" : ""}">
+      <i style="height: ${Math.max((count / max) * 100, count ? 14 : 0)}%"></i>
+      <small>${hour}</small>
+    </span>
   `).join("");
 }
 

@@ -21,6 +21,7 @@ const difficultyLabels = {
 };
 const statsPath = process.env.STATS_FILE || path.join(root, "data", "stats.json");
 const games = new Map();
+const duels = new Map();
 const stations = loadStations();
 const stationTraffic = loadStationTraffic();
 const difficultyPools = buildDifficultyPools();
@@ -87,10 +88,12 @@ server.listen(port, host, () => {
 function createGame(searchParams) {
   const modeParam = searchParams.get("mode");
   const mode = modeParam === "random" ? "random" : "daily";
-  const difficulty = mode === "random" ? normalizeDifficulty(searchParams.get("difficulty")) : "daily";
+  let difficulty = mode === "random" ? normalizeDifficulty(searchParams.get("difficulty")) : "daily";
   const playerId = normalizePlayerId(searchParams.get("playerId"));
   const dayKey = getParisDayKey();
   const maxAttempts = maxAttemptsByMode[mode];
+  const requestedDuelId = mode === "random" ? normalizeDuelId(searchParams.get("duel")) : "";
+  const duel = requestedDuelId ? duels.get(requestedDuelId) : null;
 
   if (mode === "daily" && playerId) {
     const previous = getModeStats("daily", dayKey)?.players?.[playerId];
@@ -114,14 +117,27 @@ function createGame(searchParams) {
     }
   }
 
-  const target = mode === "random"
-    ? pickRandomStation(difficulty)
-    : getDailyStationForKey(dayKey);
+  let duelId = "";
+  let target;
+  if (mode === "random") {
+    if (duel) {
+      target = duel.target;
+      difficulty = duel.difficulty;
+      duelId = duel.id;
+    } else {
+      target = pickRandomStation(difficulty);
+      duelId = createDuel(target, difficulty);
+    }
+  } else {
+    target = getDailyStationForKey(dayKey);
+  }
+
   const gameId = crypto.randomUUID();
   const game = {
     id: gameId,
     mode,
     difficulty,
+    duelId,
     playerId,
     target,
     guesses: [],
@@ -137,13 +153,18 @@ function createGame(searchParams) {
 
   return {
     gameId,
+    duelId,
     mode,
     dayKey,
     difficulty,
     difficultyLabel: mode === "random" ? difficultyLabels[difficulty] : "Station du jour",
     maxAttempts,
     stationCount: stations.length,
-    message: mode === "daily" ? "Partie du jour prête." : `Station ${difficultyLabels[difficulty].toLowerCase()} prête.`
+    message: mode === "daily"
+      ? "Partie du jour prête."
+      : duel
+        ? `Défi ${difficultyLabels[difficulty].toLowerCase()} prêt.`
+        : `Station ${difficultyLabels[difficulty].toLowerCase()} prête.`
   };
 }
 
@@ -191,6 +212,7 @@ function handleGuess(body) {
 function stateFor(game, message, status) {
   return {
     gameId: game.id,
+    duelId: game.duelId || "",
     mode: game.mode,
     dayKey: game.dayKey,
     difficulty: game.difficulty,
@@ -249,6 +271,7 @@ function adminModeDays(mode) {
         winRate: winRate(stats),
         averageAttempts: averageAttempts(stats),
         distribution: normalizedDistribution(stats.distribution),
+        completedHours: normalizedHours(stats.completedHours),
         topGuesses: topGuesses(stats, 20)
       };
 
@@ -291,6 +314,7 @@ function publicDailyStats(game) {
     winRate: winRate(stats),
     averageAttempts: averageAttempts(stats),
     distribution: normalizedDistribution(stats.distribution),
+    completedHours: normalizedHours(stats.completedHours),
     topGuesses: unlocked ? topGuesses(stats, 8) : [],
     answer: unlocked ? getDailyStationForKey(key) : null
   };
@@ -325,6 +349,7 @@ function finalizeGame(game, won) {
 
 function recordCompletedGame(stats, game, won) {
   stats.targets[game.target.name] = (stats.targets[game.target.name] || 0) + 1;
+  incrementHour(stats, getParisHour());
 
   if (won) {
     stats.wins += 1;
@@ -339,12 +364,31 @@ function recordCompletedGame(stats, game, won) {
   });
 }
 
+function createDuel(target, difficulty) {
+  const id = crypto.randomUUID();
+  duels.set(id, {
+    id,
+    target,
+    difficulty,
+    createdAt: Date.now()
+  });
+  cleanupDuels();
+  return id;
+}
+
 function incrementDistribution(stats, attempts) {
   const index = attempts - 1;
   while (stats.distribution.length <= index) {
     stats.distribution.push(0);
   }
   stats.distribution[index] += 1;
+}
+
+function incrementHour(stats, hour) {
+  while (stats.completedHours.length < 24) {
+    stats.completedHours.push(0);
+  }
+  stats.completedHours[hour] += 1;
 }
 
 function evaluateGuess(station, answer) {
@@ -470,6 +514,16 @@ function getParisDayKey(date = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function getParisHour(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const hour = parts.find((part) => part.type === "hour")?.value || "0";
+  return Number(hour) % 24;
+}
+
 function normalizeDifficulty(value) {
   return difficultyLabels[value] ? value : "medium";
 }
@@ -510,6 +564,12 @@ function getPopularityScore(station) {
 function normalizePlayerId(value) {
   const playerId = String(value || "").trim();
   if (/^[a-zA-Z0-9_-]{12,80}$/.test(playerId)) return playerId;
+  return "";
+}
+
+function normalizeDuelId(value) {
+  const duelId = String(value || "").trim();
+  if (/^[a-zA-Z0-9_-]{12,80}$/.test(duelId)) return duelId;
   return "";
 }
 
@@ -611,6 +671,14 @@ function normalizedDistribution(distribution) {
   return normalized;
 }
 
+function normalizedHours(hours) {
+  const normalized = Array.isArray(hours) ? hours.slice(0, 24) : [];
+  while (normalized.length < 24) {
+    normalized.push(0);
+  }
+  return normalized.map((count) => Number(count) || 0);
+}
+
 function statsFor(mode, dayKey) {
   if (!statsStore.days[dayKey]) {
     statsStore.days[dayKey] = {};
@@ -644,6 +712,7 @@ function createAggregateStats() {
     losses: 0,
     winAttemptTotal: 0,
     distribution: Array(maxAttemptsByMode.random).fill(0),
+    completedHours: Array(24).fill(0),
     guesses: {},
     targets: {}
   };
@@ -691,6 +760,7 @@ function normalizeModeStats(input, mode) {
     losses: Number(input.losses) || 0,
     winAttemptTotal: Number(input.winAttemptTotal) || 0,
     distribution: normalizedDistribution(input.distribution),
+    completedHours: normalizedHours(input.completedHours),
     guesses: normalizeCounterObject(input.guesses),
     targets: normalizeCounterObject(input.targets)
   };
@@ -719,6 +789,7 @@ function normalizeDifficultyStats(input) {
     losses: Number(input.losses) || 0,
     winAttemptTotal: Number(input.winAttemptTotal) || 0,
     distribution: normalizedDistribution(input.distribution),
+    completedHours: normalizedHours(input.completedHours),
     guesses: normalizeCounterObject(input.guesses),
     targets: normalizeCounterObject(input.targets)
   };
@@ -762,6 +833,16 @@ function cleanupGames() {
   for (const [id, game] of games) {
     if (now - game.createdAt > maxAge) {
       games.delete(id);
+    }
+  }
+}
+
+function cleanupDuels() {
+  const maxAge = 1000 * 60 * 60 * 24;
+  const now = Date.now();
+  for (const [id, duel] of duels) {
+    if (now - duel.createdAt > maxAge) {
+      duels.delete(id);
     }
   }
 }

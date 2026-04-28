@@ -67,3 +67,5 @@ La page admin affiche les statistiques agrégées du serveur par mode : parties 
 Les statistiques sont écrites dans `data/stats.json` par défaut. Sur un hébergeur avec disque éphémère, configure `STATS_FILE` vers un stockage persistant ou ajoute une vraie base de données.
 
 Pour le mode aléatoire, l'admin affiche aussi les stations par difficulté avec le nombre de parties terminées où chaque station était la réponse.
+
+Le jeu propose aussi un lien de défi en mode aléatoire : il crée une station commune à partager avec un autre joueur. Ce défi reste léger et en mémoire serveur.
