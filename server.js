@@ -44,6 +44,13 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (url.pathname === "/api/player" && request.method === "POST") {
+      const body = await readJson(request);
+      const result = updatePlayerProfile(body);
+      sendJson(response, result, result.error ? result.statusCode || 400 : 200);
+      return;
+    }
+
     if (url.pathname === "/api/guess" && request.method === "POST") {
       const body = await readJson(request);
       const result = handleGuess(body);
@@ -90,6 +97,8 @@ function createGame(searchParams) {
   const mode = modeParam === "random" ? "random" : "daily";
   let difficulty = mode === "random" ? normalizeDifficulty(searchParams.get("difficulty")) : "daily";
   const playerId = normalizePlayerId(searchParams.get("playerId"));
+  const playerProfile = playerId ? upsertPlayerProfile(playerId, searchParams.get("playerName")) : null;
+  const playerName = playerProfile?.name || "";
   const dayKey = getParisDayKey();
   const maxAttempts = maxAttemptsByMode[mode];
   const requestedDuelId = mode === "random" ? normalizeDuelId(searchParams.get("duel")) : "";
@@ -111,6 +120,7 @@ function createGame(searchParams) {
         finished: true,
         target: getDailyStationForKey(dayKey),
         stats: publicDailyStats({ mode, dayKey, finished: true }),
+        player: publicPlayerSummary(playerProfile),
         message: previous.won ? "Tu as déjà trouvé la station du jour." : "Tu as déjà joué la station du jour.",
         status: previous.won ? "success" : "error"
       };
@@ -139,6 +149,7 @@ function createGame(searchParams) {
     difficulty,
     duelId,
     playerId,
+    playerName,
     target,
     guesses: [],
     finished: false,
@@ -160,6 +171,7 @@ function createGame(searchParams) {
     difficultyLabel: mode === "random" ? difficultyLabels[difficulty] : "Station du jour",
     maxAttempts,
     stationCount: stations.length,
+    player: publicPlayerSummary(playerProfile),
     message: mode === "daily"
       ? "Partie du jour prête."
       : duel
@@ -173,6 +185,8 @@ function handleGuess(body) {
   if (!game) {
     return { error: "Partie introuvable. Lance une nouvelle partie.", statusCode: 404 };
   }
+
+  refreshGamePlayerName(game, body?.playerName);
 
   if (game.finished) {
     return stateFor(game, "Partie déjà terminée.", "");
@@ -223,9 +237,20 @@ function stateFor(game, message, status) {
     finished: game.finished,
     target: game.finished ? game.target : null,
     stats: game.mode === "daily" ? publicDailyStats(game) : null,
+    player: publicPlayerSummary(game.playerId ? statsStore.players?.[game.playerId] : null),
     message,
     status
   };
+}
+
+function updatePlayerProfile(body) {
+  const playerId = normalizePlayerId(body?.playerId);
+  if (!playerId) {
+    return { error: "Identifiant joueur invalide.", statusCode: 400 };
+  }
+
+  const profile = upsertPlayerProfile(playerId, body?.playerName);
+  return { player: publicPlayerSummary(profile) };
 }
 
 function statsResponse(gameId) {
@@ -237,6 +262,7 @@ function adminStatsResponse() {
   return {
     generatedAt: new Date().toISOString(),
     activeGames: [...games.values()].filter((game) => !game.finished).length,
+    players: adminPlayers(),
     modes: [
       {
         mode: "daily",
@@ -323,16 +349,20 @@ function publicDailyStats(game) {
 function finalizeGame(game, won) {
   if (game.counted) return;
 
+  const completedAt = new Date().toISOString();
   const stats = statsFor(game.mode, game.dayKey);
   recordCompletedGame(stats, game, won);
+  recordPlayerGame(game, won, completedAt);
 
   if (game.mode === "daily" && game.playerId) {
     stats.players[game.playerId] = {
+      playerId: game.playerId,
+      playerName: game.playerName || getDefaultPlayerName(game.playerId),
       finished: true,
       won,
       attempts: game.guesses.length,
       guesses: game.guesses,
-      completedAt: new Date().toISOString()
+      completedAt
     };
   }
 
@@ -345,6 +375,33 @@ function finalizeGame(game, won) {
 
   game.counted = true;
   saveStatsStore();
+}
+
+function recordPlayerGame(game, won, completedAt) {
+  if (!game.playerId) return;
+
+  const profile = upsertPlayerProfile(game.playerId, game.playerName, { save: false });
+  recordCompletedGame(profile.modes[game.mode], game, won);
+
+  if (game.mode === "random") {
+    if (!profile.difficulties[game.difficulty]) {
+      profile.difficulties[game.difficulty] = createAggregateStats();
+    }
+    recordCompletedGame(profile.difficulties[game.difficulty], game, won);
+  }
+
+  profile.lastCompletedAt = completedAt;
+  profile.lastSeenAt = completedAt;
+  profile.history.unshift({
+    completedAt,
+    dayKey: game.dayKey,
+    mode: game.mode,
+    difficulty: game.mode === "random" ? game.difficulty : "daily",
+    target: game.target.name,
+    won,
+    attempts: game.guesses.length
+  });
+  profile.history = profile.history.slice(0, 80);
 }
 
 function recordCompletedGame(stats, game, won) {
@@ -528,6 +585,80 @@ function normalizeDifficulty(value) {
   return difficultyLabels[value] ? value : "medium";
 }
 
+function refreshGamePlayerName(game, playerName) {
+  if (!game.playerId) return;
+
+  const normalizedName = normalizePlayerName(playerName);
+  if (!normalizedName || normalizedName === game.playerName) return;
+
+  const profile = upsertPlayerProfile(game.playerId, normalizedName);
+  game.playerName = profile.name;
+}
+
+function upsertPlayerProfile(playerId, playerName, options = {}) {
+  const { save = true } = options;
+  const normalizedId = normalizePlayerId(playerId);
+  if (!normalizedId) return null;
+
+  if (!statsStore.players || typeof statsStore.players !== "object") {
+    statsStore.players = {};
+  }
+
+  const now = new Date().toISOString();
+  const existing = statsStore.players[normalizedId];
+  const normalizedName = normalizePlayerName(playerName);
+  let changed = false;
+
+  if (!existing) {
+    statsStore.players[normalizedId] = createPlayerProfile(normalizedId, normalizedName, now);
+    changed = true;
+  } else {
+    statsStore.players[normalizedId] = normalizePlayerProfile(existing, normalizedId);
+  }
+
+  const profile = statsStore.players[normalizedId];
+  const nextName = normalizedName || profile.name || getDefaultPlayerName(normalizedId);
+  if (profile.name !== nextName) {
+    profile.name = nextName;
+    changed = true;
+  }
+  if (profile.lastSeenAt !== now) {
+    profile.lastSeenAt = now;
+    changed = true;
+  }
+
+  if (changed && save) {
+    saveStatsStore();
+  }
+
+  return profile;
+}
+
+function publicPlayerSummary(profile) {
+  if (!profile) return null;
+  return {
+    id: profile.id,
+    shortId: shortPlayerId(profile.id),
+    name: profile.name
+  };
+}
+
+function normalizePlayerName(value) {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 28);
+}
+
+function getDefaultPlayerName(playerId) {
+  return `Joueur ${shortPlayerId(playerId)}`;
+}
+
+function shortPlayerId(playerId) {
+  return String(playerId || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase() || "LOCAL";
+}
+
 function pickRandomStation(difficulty) {
   const pool = stations.filter((station) => stationMatchesDifficulty(station, difficulty));
   return pool[Math.floor(Math.random() * pool.length)] || stations[Math.floor(Math.random() * stations.length)];
@@ -663,6 +794,56 @@ function adminStationMenu() {
   });
 }
 
+function adminPlayers() {
+  return Object.values(statsStore.players || {})
+    .map((profile) => {
+      const daily = summarizeAggregate(profile.modes?.daily);
+      const random = summarizeAggregate(profile.modes?.random);
+      const totalWins = daily.wins + random.wins;
+      const totalCompleted = daily.completed + random.completed;
+      const totalWinAttempt = (profile.modes?.daily?.winAttemptTotal || 0) + (profile.modes?.random?.winAttemptTotal || 0);
+
+      return {
+        id: profile.id,
+        shortId: shortPlayerId(profile.id),
+        name: profile.name,
+        firstSeenAt: profile.firstSeenAt,
+        lastSeenAt: profile.lastSeenAt,
+        lastCompletedAt: profile.lastCompletedAt,
+        total: {
+          completed: totalCompleted,
+          wins: totalWins,
+          losses: daily.losses + random.losses,
+          winRate: totalCompleted ? Math.round((totalWins / totalCompleted) * 100) : 0,
+          averageAttempts: totalWins ? (totalWinAttempt / totalWins).toFixed(1).replace(".", ",") : "—"
+        },
+        daily,
+        random,
+        difficulties: difficultyOrder.map((difficulty) => ({
+          difficulty,
+          label: difficultyLabels[difficulty],
+          ...summarizeAggregate(profile.difficulties?.[difficulty])
+        })),
+        history: (profile.history || []).slice(0, 8)
+      };
+    })
+    .sort((a, b) => {
+      const dateA = Date.parse(a.lastCompletedAt || a.lastSeenAt || a.firstSeenAt || "") || 0;
+      const dateB = Date.parse(b.lastCompletedAt || b.lastSeenAt || b.firstSeenAt || "") || 0;
+      return dateB - dateA || a.name.localeCompare(b.name, "fr");
+    });
+}
+
+function summarizeAggregate(stats = createAggregateStats()) {
+  return {
+    completed: completedCount(stats),
+    wins: Number(stats.wins) || 0,
+    losses: Number(stats.losses) || 0,
+    winRate: winRate(stats),
+    averageAttempts: averageAttempts(stats)
+  };
+}
+
 function normalizedDistribution(distribution) {
   const normalized = Array.isArray(distribution) ? distribution.slice(0, maxAttemptsByMode.random) : [];
   while (normalized.length < maxAttemptsByMode.random) {
@@ -729,26 +910,31 @@ function loadStatsStore() {
 
 function createStatsStore() {
   return {
-    version: 2,
-    days: {}
+    version: 3,
+    days: {},
+    players: {}
   };
 }
 
 function normalizeStatsStore(parsed) {
   const store = createStatsStore();
-  if (!parsed || typeof parsed !== "object" || !parsed.days || typeof parsed.days !== "object") {
+  if (!parsed || typeof parsed !== "object") {
     return store;
   }
 
-  Object.entries(parsed.days).forEach(([dayKey, day]) => {
-    if (!day || typeof day !== "object") return;
-    store.days[dayKey] = {};
-    ["daily", "random"].forEach((mode) => {
-      if (day[mode]) {
-        store.days[dayKey][mode] = normalizeModeStats(day[mode], mode);
-      }
+  store.players = normalizePlayerProfiles(parsed.players);
+
+  if (parsed.days && typeof parsed.days === "object") {
+    Object.entries(parsed.days).forEach(([dayKey, day]) => {
+      if (!day || typeof day !== "object") return;
+      store.days[dayKey] = {};
+      ["daily", "random"].forEach((mode) => {
+        if (day[mode]) {
+          store.days[dayKey][mode] = normalizeModeStats(day[mode], mode);
+        }
+      });
     });
-  });
+  }
 
   return store;
 }
@@ -779,6 +965,89 @@ function normalizeModeStats(input, mode) {
   }
 
   return stats;
+}
+
+function normalizePlayerProfiles(input) {
+  if (!input || typeof input !== "object") return {};
+
+  return Object.fromEntries(
+    Object.entries(input)
+      .map(([playerId, profile]) => [normalizePlayerId(playerId), profile])
+      .filter(([playerId]) => Boolean(playerId))
+      .map(([playerId, profile]) => [playerId, normalizePlayerProfile(profile, playerId)])
+  );
+}
+
+function createPlayerProfile(playerId, playerName, now = new Date().toISOString()) {
+  return {
+    id: playerId,
+    name: normalizePlayerName(playerName) || getDefaultPlayerName(playerId),
+    firstSeenAt: now,
+    lastSeenAt: now,
+    lastCompletedAt: "",
+    modes: {
+      daily: createAggregateStats(),
+      random: createAggregateStats()
+    },
+    difficulties: Object.fromEntries(
+      difficultyOrder.map((difficulty) => [difficulty, createAggregateStats()])
+    ),
+    history: []
+  };
+}
+
+function normalizePlayerProfile(input, playerId) {
+  const fallback = createPlayerProfile(playerId, input?.name);
+  if (!input || typeof input !== "object") return fallback;
+
+  return {
+    ...fallback,
+    id: playerId,
+    name: normalizePlayerName(input.name) || fallback.name,
+    firstSeenAt: normalizeDate(input.firstSeenAt) || fallback.firstSeenAt,
+    lastSeenAt: normalizeDate(input.lastSeenAt) || fallback.lastSeenAt,
+    lastCompletedAt: normalizeDate(input.lastCompletedAt),
+    modes: {
+      daily: normalizeDifficultyStats(input.modes?.daily),
+      random: normalizeDifficultyStats(input.modes?.random)
+    },
+    difficulties: Object.fromEntries(
+      difficultyOrder.map((difficulty) => [
+        difficulty,
+        normalizeDifficultyStats(input.difficulties?.[difficulty])
+      ])
+    ),
+    history: normalizePlayerHistory(input.history)
+  };
+}
+
+function normalizePlayerHistory(input) {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const mode = entry.mode === "random" ? "random" : "daily";
+      const completedAt = normalizeDate(entry.completedAt || entry.date);
+      const target = String(entry.target || entry.answer || "").trim().slice(0, 80);
+      if (!completedAt || !target) return null;
+      return {
+        completedAt,
+        dayKey: String(entry.dayKey || "").slice(0, 10),
+        mode,
+        difficulty: mode === "random" ? normalizeDifficulty(entry.difficulty) : "daily",
+        target,
+        won: Boolean(entry.won),
+        attempts: Math.max(0, Math.min(maxAttemptsByMode.random, Number(entry.attempts) || 0))
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function normalizeDate(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
 }
 
 function normalizeDifficultyStats(input) {

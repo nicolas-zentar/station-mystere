@@ -2,6 +2,7 @@ const defaultMaxAttempts = 8;
 const personalStatsKey = "stationMysterePersonalStats:v2";
 const legacyPersonalStatsKey = "stationMysterePersonalStats:v1";
 const playerIdKey = "stationMysterePlayerId:v1";
+const playerNameKey = "stationMysterePlayerName:v1";
 const randomDifficultyKey = "stationMystereRandomDifficulty:v1";
 const difficultyLabels = {
   easy: "Facile",
@@ -52,6 +53,7 @@ let personalStats = loadPersonalStats();
 let dailyStats = null;
 let mapZoomed = false;
 const playerId = getPlayerId();
+let playerName = loadPlayerName(playerId);
 let pendingDuelId = new URLSearchParams(location.search).get("duel") || "";
 
 const guessForm = document.querySelector("#guessForm");
@@ -103,6 +105,10 @@ const personalStatNodes = {
 };
 const randomDifficultyStats = document.querySelector("#randomDifficultyStats");
 const personalHistory = document.querySelector("#personalHistory");
+const playerNameForm = document.querySelector("#playerNameForm");
+const playerNameInput = document.querySelector("#playerNameInput");
+const playerNameDisplay = document.querySelector("#playerNameDisplay");
+const playerIdDisplay = document.querySelector("#playerIdDisplay");
 const dailyStarted = document.querySelector("#dailyStarted");
 const dailyWinRate = document.querySelector("#dailyWinRate");
 const dailyAverage = document.querySelector("#dailyAverage");
@@ -119,10 +125,21 @@ renderMetroNetwork();
 renderBaseMap();
 renderPersonalStats();
 renderDailyStats(null);
+renderPlayerProfile();
 
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
   submitGuess();
+});
+
+playerNameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const nextName = normalizePlayerNameInput(playerNameInput.value) || getDefaultPlayerName(playerId);
+  playerName = nextName;
+  localStorage.setItem(playerNameKey, playerName);
+  renderPlayerProfile();
+  await syncPlayerProfile();
+  setMessage("Pseudo enregistré.", "success");
 });
 
 randomButton.addEventListener("click", () => {
@@ -231,7 +248,8 @@ async function startGame(mode) {
 async function startBackendGame(mode) {
   const params = new URLSearchParams({
     mode,
-    playerId
+    playerId,
+    playerName
   });
   if (mode === "random") {
     params.set("difficulty", currentDifficulty);
@@ -249,6 +267,11 @@ async function startBackendGame(mode) {
     throw new Error(game.error || "Impossible de créer la partie.");
   }
 
+  if (game.player?.name) {
+    playerName = game.player.name;
+    localStorage.setItem(playerNameKey, playerName);
+    renderPlayerProfile();
+  }
   currentMode = game.mode;
   if (currentMode === "random" && game.difficulty) {
     currentDifficulty = game.difficulty;
@@ -343,7 +366,7 @@ async function submitBackendGuess(guess) {
   const response = await fetch("/api/guess", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId, guess })
+    body: JSON.stringify({ gameId, guess, playerName })
   });
   const data = await response.json();
 
@@ -353,6 +376,11 @@ async function submitBackendGuess(guess) {
   }
 
   guesses = data.guesses;
+  if (data.player?.name) {
+    playerName = data.player.name;
+    localStorage.setItem(playerNameKey, playerName);
+    renderPlayerProfile();
+  }
   finished = data.finished;
   revealedTarget = data.target || null;
   currentMaxAttempts = data.maxAttempts || currentMaxAttempts;
@@ -1292,6 +1320,57 @@ function getPlayerId() {
     : `player-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   localStorage.setItem(playerIdKey, next);
   return next;
+}
+
+function loadPlayerName(id) {
+  const stored = normalizePlayerNameInput(localStorage.getItem(playerNameKey));
+  if (stored) return stored;
+
+  const fallback = getDefaultPlayerName(id);
+  localStorage.setItem(playerNameKey, fallback);
+  return fallback;
+}
+
+function renderPlayerProfile() {
+  playerNameDisplay.textContent = playerName;
+  playerNameInput.value = playerName;
+  playerIdDisplay.textContent = `ID ${shortPlayerId(playerId)}`;
+}
+
+async function syncPlayerProfile() {
+  if (!useBackend) return;
+
+  try {
+    const response = await fetch("/api/player", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId, playerName })
+    });
+    const data = await response.json();
+    if (response.ok && data.player?.name) {
+      playerName = data.player.name;
+      localStorage.setItem(playerNameKey, playerName);
+      renderPlayerProfile();
+    }
+  } catch {
+    // Le pseudo reste sauvegardé dans ce navigateur si le serveur est indisponible.
+  }
+}
+
+function normalizePlayerNameInput(value) {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 28);
+}
+
+function getDefaultPlayerName(id) {
+  return `Joueur ${shortPlayerId(id)}`;
+}
+
+function shortPlayerId(id) {
+  return String(id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase() || "LOCAL";
 }
 
 function getShareText() {

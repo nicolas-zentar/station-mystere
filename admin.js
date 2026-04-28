@@ -1,10 +1,18 @@
 const key = new URLSearchParams(location.search).get("key") || "";
 const adminGenerated = document.querySelector("#adminGenerated");
 const adminActive = document.querySelector("#adminActive");
+const adminPlayerCount = document.querySelector("#adminPlayerCount");
+const adminPlayerSearch = document.querySelector("#adminPlayerSearch");
+const adminPlayers = document.querySelector("#adminPlayers");
 const adminDaily = document.querySelector("#adminDaily");
 const adminRandom = document.querySelector("#adminRandom");
+let currentAdminData = null;
 
 loadAdminStats();
+
+adminPlayerSearch.addEventListener("input", () => {
+  renderPlayers(currentAdminData?.players || []);
+});
 
 async function loadAdminStats() {
   try {
@@ -19,19 +27,103 @@ async function loadAdminStats() {
   } catch (error) {
     adminGenerated.textContent = "Erreur";
     adminActive.textContent = "Accès refusé";
+    adminPlayerCount.textContent = "Erreur";
+    adminPlayers.textContent = error.message;
     adminDaily.textContent = error.message;
     adminRandom.textContent = error.message;
   }
 }
 
 function renderAdminStats(data) {
+  currentAdminData = data;
   adminGenerated.textContent = new Date(data.generatedAt).toLocaleString("fr-FR");
   adminActive.textContent = `${data.activeGames} partie${data.activeGames > 1 ? "s" : ""} active${data.activeGames > 1 ? "s" : ""}`;
+  renderPlayers(data.players || []);
 
   const daily = data.modes?.find((mode) => mode.mode === "daily");
   const random = data.modes?.find((mode) => mode.mode === "random");
   renderModeStats(daily, adminDaily);
   renderModeStats(random, adminRandom);
+}
+
+function renderPlayers(players) {
+  const query = normalizeSearch(adminPlayerSearch.value);
+  const filtered = players.filter((player) => {
+    if (!query) return true;
+    return normalizeSearch(`${player.name} ${player.id} ${player.shortId}`).includes(query);
+  });
+  const visiblePlayers = filtered.slice(0, 18);
+
+  adminPlayerCount.textContent = `${players.length} joueur${players.length > 1 ? "s" : ""}`;
+  adminPlayers.innerHTML = "";
+
+  const summary = document.createElement("p");
+  summary.className = "admin-station-summary";
+  summary.textContent = query
+    ? `${filtered.length} résultat${filtered.length > 1 ? "s" : ""}`
+    : `${visiblePlayers.length} joueur${visiblePlayers.length > 1 ? "s" : ""} affiché${visiblePlayers.length > 1 ? "s" : ""}`;
+  adminPlayers.append(summary);
+
+  if (!visiblePlayers.length) {
+    const empty = document.createElement("p");
+    empty.className = "admin-empty";
+    empty.textContent = "Aucun joueur trouvé.";
+    adminPlayers.append(empty);
+    return;
+  }
+
+  visiblePlayers.forEach((player) => {
+    adminPlayers.append(renderPlayerCard(player));
+  });
+}
+
+function renderPlayerCard(player) {
+  const card = document.createElement("article");
+  card.className = "admin-player-card";
+
+  const difficultyRows = player.difficulties
+    .filter((difficulty) => difficulty.completed)
+    .map((difficulty) => `
+      <span class="guess-chip">${escapeHtml(difficulty.label)} · ${difficulty.completed} · ${difficulty.winRate}%</span>
+    `)
+    .join("");
+
+  const historyRows = player.history?.length
+    ? player.history.map((entry) => `
+      <div class="admin-player-history-row ${entry.won ? "won" : "lost"}">
+        <span>${escapeHtml(entry.target)}</span>
+        <small>${entry.mode === "daily" ? "Journalier" : `Aléatoire ${escapeHtml(difficultyLabel(entry.difficulty))}`} · ${entry.won ? `${entry.attempts}/8` : "X/8"} · ${formatDate(entry.completedAt)}</small>
+      </div>
+    `).join("")
+    : `<p class="admin-empty">Aucune partie terminée.</p>`;
+
+  card.innerHTML = `
+    <div class="admin-player-head">
+      <div>
+        <h3>${escapeHtml(player.name)}</h3>
+        <span>ID ${escapeHtml(player.shortId)}</span>
+      </div>
+      <strong>${player.total.completed}</strong>
+    </div>
+    <div class="admin-player-meta">
+      <span>Vu ${formatDate(player.lastSeenAt)}</span>
+      <span>Dernière partie ${formatDate(player.lastCompletedAt)}</span>
+    </div>
+    <div class="stats-grid admin-player-grid">
+      <div><span>Total</span><strong>${player.total.completed}</strong></div>
+      <div><span>Réussite</span><strong>${player.total.winRate}%</strong></div>
+      <div><span>Moyenne</span><strong>${player.total.averageAttempts}</strong></div>
+      <div><span>Journalier</span><strong>${player.daily.completed}</strong></div>
+      <div><span>Aléatoire</span><strong>${player.random.completed}</strong></div>
+    </div>
+    ${difficultyRows ? `<div class="top-guesses admin-breakdown"><span>Difficultés</span><div>${difficultyRows}</div></div>` : ""}
+    <div class="admin-player-history">
+      <span>Historique récent</span>
+      <div>${historyRows}</div>
+    </div>
+  `;
+
+  return card;
 }
 
 function renderModeStats(modeData, node) {
@@ -191,6 +283,36 @@ function renderHourly(hours) {
       <small>${hour}</small>
     </span>
   `).join("");
+}
+
+function difficultyLabel(difficulty) {
+  return ({
+    easy: "Facile",
+    medium: "Moyen",
+    hard: "Difficile",
+    any: "Aléatoire"
+  })[difficulty] || "";
+}
+
+function formatDate(value) {
+  if (!value) return "jamais";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "jamais";
+
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function normalizeSearch(value) {
+  return String(value || "")
+    .toLocaleLowerCase("fr-FR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
 
 function escapeHtml(value) {

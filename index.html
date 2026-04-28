@@ -115,6 +115,18 @@
               <h3>Moi</h3>
               <span>Depuis ce navigateur</span>
             </div>
+            <div class="player-profile" aria-label="Profil joueur">
+              <div class="player-profile-main">
+                <span>Pseudo</span>
+                <strong id="playerNameDisplay">Joueur</strong>
+                <small id="playerIdDisplay">ID local</small>
+              </div>
+              <form class="player-name-form" id="playerNameForm">
+                <label for="playerNameInput">Changer</label>
+                <input id="playerNameInput" name="playerName" maxlength="28" autocomplete="nickname" placeholder="Ton pseudo">
+                <button class="secondary-button" type="submit">OK</button>
+              </form>
+            </div>
             <div class="personal-modes">
               <article class="personal-mode">
                 <div class="personal-mode-head">
