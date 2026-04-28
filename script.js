@@ -13,6 +13,7 @@ let gameId = null;
 let guesses = [];
 let finished = false;
 let currentMode = "daily";
+let currentStats = null;
 
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
@@ -28,12 +29,21 @@ const mapPoints = document.querySelector("#mapPoints");
 const template = document.querySelector("#guessTemplate");
 const stationCount = document.querySelector("#stationCount");
 const dataMode = document.querySelector("#dataMode");
+const stationDots = document.querySelector("#stationDots");
+const answerStatus = document.querySelector("#answerStatus");
+const answerValue = document.querySelector("#answerValue");
+const statStarted = document.querySelector("#statStarted");
+const statWinRate = document.querySelector("#statWinRate");
+const statAverage = document.querySelector("#statAverage");
+const distributionNode = document.querySelector("#distribution");
+const topGuessesNode = document.querySelector("#topGuesses");
 
 stationList.innerHTML = stations
   .map((station) => `<option value="${station.name}"></option>`)
   .join("");
 
 stationCount.textContent = `${stations.length} stations`;
+renderBaseMap();
 
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -105,10 +115,12 @@ async function startBackendGame(mode) {
   revealedTarget = null;
   guesses = [];
   finished = false;
+  currentStats = null;
   shareButton.disabled = true;
-  dataMode.textContent = currentMode === "daily" ? "Back-end · station du jour" : "Back-end · aléatoire";
+  dataMode.textContent = currentMode === "daily" ? "Partie du jour" : "Mode aléatoire";
   setMessage(currentMode === "daily" ? "Partie du jour prête." : "Nouvelle station aléatoire.", "");
   render();
+  await refreshStats();
   guessInput.focus();
 }
 
@@ -119,11 +131,13 @@ function startLocalGame(nextTarget, mode) {
   revealedTarget = null;
   guesses = [];
   finished = false;
+  currentStats = null;
   guessInput.value = "";
   shareButton.disabled = true;
-  dataMode.textContent = mode === "daily" ? "Autonome · station du jour" : "Autonome · aléatoire";
+  dataMode.textContent = mode === "daily" ? "Partie du jour" : "Mode aléatoire";
   setMessage(mode === "daily" ? "Prêt pour la station du jour." : "Nouvelle station aléatoire.", "");
   render();
+  renderStats(null);
   guessInput.focus();
 }
 
@@ -160,10 +174,12 @@ async function submitBackendGuess(guess) {
   guesses = data.guesses;
   finished = data.finished;
   revealedTarget = data.target || null;
+  currentStats = data.stats || currentStats;
   guessInput.value = "";
   shareButton.disabled = !finished;
   setMessage(data.message, data.status || "");
   render();
+  renderStats(currentStats);
 }
 
 function submitLocalGuess(value) {
@@ -186,11 +202,13 @@ function submitLocalGuess(value) {
   if (attempt.solved) {
     finished = true;
     revealedTarget = target;
+    currentStats = getLocalStats(target);
     shareButton.disabled = false;
     setMessage(`Trouvé en ${guesses.length} essai${guesses.length > 1 ? "s" : ""}.`, "success");
   } else if (guesses.length >= maxAttempts) {
     finished = true;
     revealedTarget = target;
+    currentStats = getLocalStats(target);
     shareButton.disabled = false;
     setMessage(`Perdu : c'était ${target.name}.`, "error");
   } else {
@@ -198,6 +216,7 @@ function submitLocalGuess(value) {
   }
 
   render();
+  renderStats(currentStats);
 }
 
 function render() {
@@ -212,6 +231,75 @@ function render() {
   mapStatus.textContent = guesses.length
     ? `${guesses.length} tentative${guesses.length > 1 ? "s" : ""} placée${guesses.length > 1 ? "s" : ""}`
     : "Aucune tentative";
+}
+
+function renderStats(stats) {
+  if (!stats) {
+    answerStatus.textContent = "Réponse masquée";
+    answerValue.textContent = finished && revealedTarget ? revealedTarget.name : "À débloquer";
+    statStarted.textContent = "—";
+    statWinRate.textContent = "—";
+    statAverage.textContent = "—";
+    renderDistribution([0, 0, 0, 0, 0, 0]);
+    topGuessesNode.textContent = "Les statistiques apparaissent avec la version en ligne.";
+    return;
+  }
+
+  const answer = stats.answer || revealedTarget;
+  answerStatus.textContent = answer ? "Réponse révélée" : "Réponse masquée";
+  answerValue.textContent = answer ? answer.name : "À débloquer";
+  statStarted.textContent = stats.started;
+  statWinRate.textContent = Number.isFinite(stats.winRate) ? `${stats.winRate}%` : "—";
+  statAverage.textContent = stats.averageAttempts;
+  renderDistribution(stats.distribution || [0, 0, 0, 0, 0, 0]);
+  renderTopGuesses(stats.topGuesses || [], stats.unlocked);
+}
+
+function renderDistribution(distribution) {
+  const max = Math.max(...distribution, 1);
+  distributionNode.innerHTML = "";
+
+  distribution.forEach((count, index) => {
+    const row = document.createElement("div");
+    row.className = "distribution-row";
+
+    const label = document.createElement("span");
+    label.textContent = index + 1;
+
+    const barWrap = document.createElement("div");
+    barWrap.className = "distribution-bar";
+
+    const bar = document.createElement("i");
+    bar.style.width = `${Math.max((count / max) * 100, count ? 9 : 0)}%`;
+
+    const value = document.createElement("strong");
+    value.textContent = count;
+
+    barWrap.append(bar);
+    row.append(label, barWrap, value);
+    distributionNode.append(row);
+  });
+}
+
+function renderTopGuesses(topGuesses, unlocked = true) {
+  topGuessesNode.innerHTML = "";
+
+  if (!unlocked) {
+    topGuessesNode.textContent = "Débloquées à la fin de ta partie.";
+    return;
+  }
+
+  if (!topGuesses.length) {
+    topGuessesNode.textContent = "Aucune tentative publique pour l'instant.";
+    return;
+  }
+
+  topGuesses.forEach((guess) => {
+    const chip = document.createElement("span");
+    chip.className = "guess-chip";
+    chip.textContent = `${guess.name} · ${guess.count}`;
+    topGuessesNode.append(chip);
+  });
 }
 
 function renderGuess(attempt) {
@@ -260,9 +348,39 @@ function renderGuess(attempt) {
   return item;
 }
 
+async function refreshStats() {
+  if (!useBackend || !gameId || currentMode !== "daily") {
+    renderStats(currentStats);
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/stats?gameId=${encodeURIComponent(gameId)}`);
+    const stats = await response.json();
+    if (response.ok) {
+      currentStats = stats;
+      renderStats(currentStats);
+    }
+  } catch {
+    renderStats(currentStats);
+  }
+}
+
+function getLocalStats(answer) {
+  return {
+    unlocked: true,
+    started: "—",
+    winRate: "—",
+    averageAttempts: "—",
+    distribution: [0, 0, 0, 0, 0, 0],
+    topGuesses: guesses.map((guess) => ({ name: guess.station.name, count: 1 })),
+    answer
+  };
+}
+
 function setTile(node, className, category, value, description) {
   const ariaValue = Array.isArray(value) ? value.join(", ") : value;
-  node.className = `tile ${className}`;
+  node.className = `tile ${className}${category === "Direction" ? " direction" : ""}`;
   node.title = description;
   node.setAttribute("aria-label", `${category}: ${ariaValue}. ${description}.`);
   node.innerHTML = "";
@@ -286,6 +404,22 @@ function setTile(node, className, category, value, description) {
   }
 
   node.append(categoryNode, valueNode);
+}
+
+function renderBaseMap() {
+  stationDots.innerHTML = "";
+
+  stations.forEach((station) => {
+    const point = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    const { x, y } = project(station);
+    point.setAttribute("cx", x);
+    point.setAttribute("cy", y);
+    point.setAttribute("r", station.lines.length > 2 ? "3.1" : station.lines.length > 1 ? "2.5" : "1.9");
+    point.setAttribute("class", station.lines.length > 1 ? "station-dot hub-dot" : "station-dot");
+    point.append(document.createElementNS("http://www.w3.org/2000/svg", "title"));
+    point.querySelector("title").textContent = `${station.name} · ${station.lines.join(", ")}`;
+    stationDots.append(point);
+  });
 }
 
 function renderMap() {

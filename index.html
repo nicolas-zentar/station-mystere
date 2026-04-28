@@ -26,15 +26,25 @@
       <section class="play-area">
         <aside class="map-panel" aria-label="Carte des essais">
           <div class="mini-map" id="miniMap">
-            <svg viewBox="0 0 420 420" role="img" aria-label="Carte stylisée de Paris">
-              <path class="city-shape" d="M211 34c40 0 72 12 102 37 35 29 62 60 71 101 9 40 2 87-19 121-23 38-61 64-106 79-48 16-103 18-145-9-42-26-66-77-77-126-11-50-7-101 23-139 32-40 93-64 151-64Z"></path>
-              <path class="seine" d="M27 254c62-42 98-18 138-13 48 6 71-28 111-32 42-4 65 19 117-17"></path>
-              <path class="metro-line line-1" d="M65 218h289"></path>
-              <path class="metro-line line-2" d="M93 126c69 32 158 31 234-4"></path>
-              <path class="metro-line line-4" d="M207 65c-20 76-18 193 8 287"></path>
-              <path class="metro-line line-6" d="M86 293c74 58 187 58 260-5"></path>
-              <path class="metro-line line-8" d="M95 98c54 54 121 109 232 187"></path>
-              <path class="metro-line line-14" d="M290 62c-17 102-51 199-91 300"></path>
+            <svg viewBox="0 0 420 420" role="img" aria-label="Carte stylisée des stations du métro parisien">
+              <defs>
+                <linearGradient id="mapGlow" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stop-color="#fff8ea"></stop>
+                  <stop offset="1" stop-color="#edf4f4"></stop>
+                </linearGradient>
+              </defs>
+              <rect class="map-ground" x="28" y="28" width="364" height="364" rx="22"></rect>
+              <path class="seine" d="M38 229c47-34 91-28 137-14 55 17 91 3 132-18 34-17 53-15 75-6"></path>
+              <path class="ring-road" d="M119 107c49-39 128-45 179-4 48 38 63 106 36 164-28 61-98 94-165 77-65-17-109-77-104-143 3-39 22-72 54-94Z"></path>
+              <path class="core-line core-1" d="M73 212h276"></path>
+              <path class="core-line core-4" d="M207 75c-17 74-17 169 6 270"></path>
+              <path class="core-line core-6" d="M89 284c73 56 189 58 244 3"></path>
+              <path class="core-line core-14" d="M278 73c-10 85-43 188-88 275"></path>
+              <text class="map-label" x="210" y="63" text-anchor="middle">Nord</text>
+              <text class="map-label" x="210" y="374" text-anchor="middle">Sud</text>
+              <text class="map-label" x="49" y="213" text-anchor="middle">Ouest</text>
+              <text class="map-label" x="371" y="213" text-anchor="middle">Est</text>
+              <g id="stationDots"></g>
               <g id="mapPoints"></g>
             </svg>
           </div>
@@ -69,6 +79,36 @@
             <span><strong>Lieu</strong> arrondissement parisien ou commune ; ↑ ou ↓ indique si la cible a un numéro d'arrondissement plus élevé ou plus faible</span>
             <span><strong>Direction</strong> position de la station mystère depuis votre essai</span>
           </div>
+
+          <section class="stats-panel" aria-label="Statistiques du jour">
+            <div class="stats-head">
+              <h2>Stats du jour</h2>
+              <span id="answerStatus">Réponse masquée</span>
+            </div>
+            <div class="answer-box">
+              <span>Réponse</span>
+              <strong id="answerValue">À débloquer</strong>
+            </div>
+            <div class="stats-grid">
+              <div>
+                <span>Parties</span>
+                <strong id="statStarted">0</strong>
+              </div>
+              <div>
+                <span>Réussite</span>
+                <strong id="statWinRate">0%</strong>
+              </div>
+              <div>
+                <span>Moyenne</span>
+                <strong id="statAverage">—</strong>
+              </div>
+            </div>
+            <div class="distribution" id="distribution" aria-label="Distribution des victoires"></div>
+            <div class="top-guesses">
+              <span>Tentatives fréquentes</span>
+              <div id="topGuesses">Aucune tentative publique pour l'instant.</div>
+            </div>
+          </section>
 
           <div class="guesses" id="guesses" aria-live="polite"></div>
 

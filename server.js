@@ -10,6 +10,7 @@ const host = process.env.HOST || "0.0.0.0";
 const maxAttempts = 6;
 const games = new Map();
 const stations = loadStations();
+const dailyStats = new Map();
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -35,6 +36,11 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (url.pathname === "/api/stats" && request.method === "GET") {
+      sendJson(response, statsResponse(url.searchParams.get("gameId")));
+      return;
+    }
+
     serveStatic(url.pathname, response);
   } catch (error) {
     sendJson(response, { error: "Erreur serveur.", detail: error.message }, 500);
@@ -52,15 +58,22 @@ function createGame(modeParam) {
     ? stations[Math.floor(Math.random() * stations.length)]
     : getDailyStation();
   const gameId = crypto.randomUUID();
-
-  games.set(gameId, {
+  const game = {
     id: gameId,
     mode,
     target,
     guesses: [],
     finished: false,
+    counted: false,
+    dayKey: dailyKey(),
     createdAt: Date.now()
-  });
+  };
+
+  games.set(gameId, game);
+
+  if (mode === "daily") {
+    statsFor(game.dayKey).started += 1;
+  }
 
   cleanupGames();
 
@@ -95,8 +108,13 @@ function handleGuess(body) {
   const attempt = evaluateGuess(station, game.target);
   game.guesses.push(attempt);
 
+  if (game.mode === "daily") {
+    recordDailyGuess(game, attempt.station);
+  }
+
   if (attempt.solved) {
     game.finished = true;
+    finalizeDailyGame(game, true);
     return stateFor(
       game,
       `Trouvé en ${game.guesses.length} essai${game.guesses.length > 1 ? "s" : ""}.`,
@@ -106,6 +124,7 @@ function handleGuess(body) {
 
   if (game.guesses.length >= maxAttempts) {
     game.finished = true;
+    finalizeDailyGame(game, false);
     return stateFor(game, `Perdu : c'était ${game.target.name}.`, "error");
   }
 
@@ -121,9 +140,77 @@ function stateFor(game, message, status) {
     guesses: game.guesses,
     finished: game.finished,
     target: game.finished ? game.target : null,
+    stats: game.mode === "daily" ? publicStats(game) : null,
     message,
     status
   };
+}
+
+function statsResponse(gameId) {
+  const game = games.get(gameId);
+  return publicStats(game);
+}
+
+function publicStats(game) {
+  const key = game?.dayKey || dailyKey();
+  const stats = statsFor(key);
+  const completed = stats.wins + stats.losses;
+  const averageAttempts = stats.wins
+    ? (stats.winAttemptTotal / stats.wins).toFixed(1).replace(".", ",")
+    : "—";
+  const unlocked = game?.mode === "daily" && game.finished;
+  const topGuesses = unlocked ? [...stats.guesses.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, count })) : [];
+
+  return {
+    dayKey: key,
+    unlocked,
+    started: stats.started,
+    completed,
+    wins: stats.wins,
+    losses: stats.losses,
+    winRate: completed ? Math.round((stats.wins / completed) * 100) : 0,
+    averageAttempts,
+    distribution: stats.distribution,
+    topGuesses,
+    answer: unlocked ? getDailyStation() : null
+  };
+}
+
+function statsFor(key) {
+  if (!dailyStats.has(key)) {
+    dailyStats.set(key, {
+      started: 0,
+      wins: 0,
+      losses: 0,
+      winAttemptTotal: 0,
+      distribution: [0, 0, 0, 0, 0, 0],
+      guesses: new Map()
+    });
+  }
+
+  return dailyStats.get(key);
+}
+
+function recordDailyGuess(game, station) {
+  const stats = statsFor(game.dayKey);
+  stats.guesses.set(station.name, (stats.guesses.get(station.name) || 0) + 1);
+}
+
+function finalizeDailyGame(game, won) {
+  if (game.mode !== "daily" || game.counted) return;
+
+  const stats = statsFor(game.dayKey);
+  if (won) {
+    stats.wins += 1;
+    stats.winAttemptTotal += game.guesses.length;
+    stats.distribution[game.guesses.length - 1] += 1;
+  } else {
+    stats.losses += 1;
+  }
+  game.counted = true;
 }
 
 function evaluateGuess(station, answer) {
@@ -218,10 +305,21 @@ function getDistanceKm(a, b) {
 
 function getDailyStation() {
   const start = new Date(Date.UTC(2026, 0, 1));
-  const today = new Date();
-  const current = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const [year, month, dayOfMonth] = dailyKey().split("-").map(Number);
+  const current = new Date(Date.UTC(year, month - 1, dayOfMonth));
   const day = Math.floor((current - start) / 86400000);
   return stations[((day % stations.length) + stations.length) % stations.length];
+}
+
+function dailyKey() {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function findStation(value) {

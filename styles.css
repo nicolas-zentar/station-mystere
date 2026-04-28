@@ -170,49 +170,65 @@ h1 {
   display: block;
 }
 
-.city-shape {
-  fill: #f6efe2;
-  stroke: #2f3035;
-  stroke-width: 2.4;
+.map-ground {
+  fill: url("#mapGlow");
+  stroke: rgba(47, 48, 53, 0.16);
+  stroke-width: 1.4;
 }
 
 .seine {
   fill: none;
-  stroke: #65a7ce;
-  stroke-width: 16;
+  stroke: #5da6cf;
+  stroke-width: 13;
   stroke-linecap: round;
-  opacity: 0.86;
+  opacity: 0.68;
 }
 
-.metro-line {
+.ring-road {
+  fill: none;
+  stroke: rgba(47, 48, 53, 0.44);
+  stroke-width: 2.6;
+  stroke-dasharray: 5 7;
+}
+
+.core-line {
   fill: none;
   stroke-linecap: round;
-  stroke-width: 7;
-  opacity: 0.56;
+  stroke-width: 5.5;
+  opacity: 0.42;
 }
 
-.line-1 {
+.core-1 {
   stroke: #f4c300;
 }
 
-.line-2 {
-  stroke: #0064b0;
-}
-
-.line-4 {
+.core-4 {
   stroke: #be418d;
 }
 
-.line-6 {
+.core-6 {
   stroke: #79bb92;
 }
 
-.line-8 {
-  stroke: #c5a3cc;
+.core-14 {
+  stroke: #662483;
 }
 
-.line-14 {
-  stroke: #662483;
+.map-label {
+  fill: rgba(47, 48, 53, 0.46);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.station-dot {
+  fill: rgba(47, 48, 53, 0.42);
+  stroke: #fff;
+  stroke-width: 0.7;
+}
+
+.hub-dot {
+  fill: rgba(211, 56, 47, 0.74);
 }
 
 .map-point {
@@ -404,6 +420,129 @@ input:focus {
 
 .category-help strong {
   color: var(--ink);
+}
+
+.stats-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 13px;
+  border: 1px solid rgba(216, 210, 199, 0.86);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(248, 245, 239, 0.78));
+}
+
+.stats-head,
+.answer-box,
+.stats-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stats-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.1;
+}
+
+.stats-head span,
+.answer-box span,
+.top-guesses > span,
+.stats-grid span {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.answer-box {
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 210, 199, 0.86);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.answer-box strong {
+  text-align: right;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stats-grid div {
+  display: grid;
+  gap: 3px;
+  min-height: 56px;
+  padding: 10px;
+  border: 1px solid rgba(216, 210, 199, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.stats-grid strong {
+  font-size: 1.12rem;
+}
+
+.distribution {
+  display: grid;
+  gap: 5px;
+}
+
+.distribution-row {
+  display: grid;
+  grid-template-columns: 18px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.distribution-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(47, 48, 53, 0.08);
+}
+
+.distribution-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), #66a982);
+}
+
+.top-guesses {
+  display: grid;
+  gap: 7px;
+}
+
+#topGuesses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.guess-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(216, 210, 199, 0.92);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .hit {
