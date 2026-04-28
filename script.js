@@ -23,8 +23,10 @@ const messageNode = document.querySelector("#message");
 const attemptCount = document.querySelector("#attemptCount");
 const randomButton = document.querySelector("#randomButton");
 const dailyButton = document.querySelector("#dailyButton");
+const titleDailyButton = document.querySelector("#titleDailyButton");
 const shareButton = document.querySelector("#shareButton");
 const mapStatus = document.querySelector("#mapStatus");
+const metroNetwork = document.querySelector("#metroNetwork");
 const mapPoints = document.querySelector("#mapPoints");
 const template = document.querySelector("#guessTemplate");
 const stationCount = document.querySelector("#stationCount");
@@ -43,6 +45,7 @@ stationList.innerHTML = stations
   .join("");
 
 stationCount.textContent = `${stations.length} stations`;
+renderMetroNetwork();
 renderBaseMap();
 
 guessForm.addEventListener("submit", (event) => {
@@ -55,6 +58,10 @@ randomButton.addEventListener("click", () => {
 });
 
 dailyButton.addEventListener("click", () => {
+  startGame("daily");
+});
+
+titleDailyButton.addEventListener("click", () => {
   startGame("daily");
 });
 
@@ -419,6 +426,23 @@ function renderBaseMap() {
     point.append(document.createElementNS("http://www.w3.org/2000/svg", "title"));
     point.querySelector("title").textContent = `${station.name} · ${station.lines.join(", ")}`;
     stationDots.append(point);
+  });
+}
+
+function renderMetroNetwork() {
+  if (!metroNetwork || typeof linePaths === "undefined") return;
+
+  metroNetwork.innerHTML = "";
+
+  linePaths.forEach((path) => {
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("class", `network-line m-${path.line.replace("bis", "b")}`);
+    polyline.setAttribute("points", path.points.map((point) => {
+      const { x, y } = project(point);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" "));
+
+    metroNetwork.append(polyline);
   });
 }
 

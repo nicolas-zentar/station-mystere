@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const root = __dirname;
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
+const adminKey = process.env.ADMIN_KEY || "";
 const maxAttempts = 6;
 const games = new Map();
 const stations = loadStations();
@@ -38,6 +39,24 @@ const server = http.createServer(async (request, response) => {
 
     if (url.pathname === "/api/stats" && request.method === "GET") {
       sendJson(response, statsResponse(url.searchParams.get("gameId")));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/stats" && request.method === "GET") {
+      if (!isAdminAuthorized(url)) {
+        sendJson(response, { error: "Accès admin refusé." }, 403);
+        return;
+      }
+      sendJson(response, adminStatsResponse());
+      return;
+    }
+
+    if (url.pathname === "/admin" && request.method === "GET") {
+      if (!isAdminAuthorized(url)) {
+        sendHtml(response, adminDeniedHtml(), 403);
+        return;
+      }
+      serveFile("admin.html", response);
       return;
     }
 
@@ -149,6 +168,37 @@ function stateFor(game, message, status) {
 function statsResponse(gameId) {
   const game = games.get(gameId);
   return publicStats(game);
+}
+
+function adminStatsResponse() {
+  const days = [...dailyStats.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, stats]) => {
+      const completed = stats.wins + stats.losses;
+      const topGuesses = [...stats.guesses.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+        .slice(0, 20)
+        .map(([name, count]) => ({ name, count }));
+
+      return {
+        dayKey: key,
+        started: stats.started,
+        completed,
+        wins: stats.wins,
+        losses: stats.losses,
+        winRate: completed ? Math.round((stats.wins / completed) * 100) : 0,
+        averageAttempts: stats.wins ? (stats.winAttemptTotal / stats.wins).toFixed(1).replace(".", ",") : "—",
+        distribution: stats.distribution,
+        topGuesses,
+        answer: getDailyStationForKey(key)
+      };
+    });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    activeGames: games.size,
+    days
+  };
 }
 
 function publicStats(game) {
@@ -304,8 +354,12 @@ function getDistanceKm(a, b) {
 }
 
 function getDailyStation() {
+  return getDailyStationForKey(dailyKey());
+}
+
+function getDailyStationForKey(key) {
   const start = new Date(Date.UTC(2026, 0, 1));
-  const [year, month, dayOfMonth] = dailyKey().split("-").map(Number);
+  const [year, month, dayOfMonth] = key.split("-").map(Number);
   const current = new Date(Date.UTC(year, month - 1, dayOfMonth));
   const day = Math.floor((current - start) / 86400000);
   return stations[((day % stations.length) + stations.length) % stations.length];
@@ -395,8 +449,53 @@ function sendJson(response, payload, statusCode = 200) {
   response.end(JSON.stringify(payload));
 }
 
+function sendHtml(response, html, statusCode = 200) {
+  response.writeHead(statusCode, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  response.end(html);
+}
+
+function isAdminAuthorized(url) {
+  return Boolean(adminKey) && url.searchParams.get("key") === adminKey;
+}
+
+function adminDeniedHtml() {
+  return `<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin Station Mystère</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="game-shell admin-shell">
+      <section class="admin-card">
+        <p class="kicker">Station Mystère</p>
+        <h1>Accès admin</h1>
+        <p class="message error">Page privée indisponible ou clé incorrecte.</p>
+        <p class="admin-help">Configure une variable Render <strong>ADMIN_KEY</strong>, puis ouvre <strong>/admin?key=ton-mot-de-passe</strong>.</p>
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
 function serveStatic(urlPath, response) {
   const safePath = urlPath === "/" ? "/index.html" : decodeURIComponent(urlPath);
+
+  if (safePath === "/admin.html") {
+    response.writeHead(404);
+    response.end("Not found");
+    return;
+  }
+
+  serveFile(safePath, response);
+}
+
+function serveFile(safePath, response) {
   const filePath = path.normalize(path.join(root, safePath));
 
   if (!filePath.startsWith(root)) {

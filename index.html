@@ -11,7 +11,7 @@
       <section class="topbar" aria-label="En-tête du jeu">
         <div class="title-lockup">
           <p class="kicker">Paris, 6 essais</p>
-          <h1>Station Mystère</h1>
+          <h1><button class="title-button" id="titleDailyButton" type="button" aria-label="Revenir à la station du jour">Station Mystère</button></h1>
           <div class="meta-row" aria-label="Informations de partie">
             <span id="stationCount">321 stations</span>
             <span id="dataMode">Chargement</span>
@@ -36,10 +36,7 @@
               <rect class="map-ground" x="28" y="28" width="364" height="364" rx="22"></rect>
               <path class="seine" d="M38 229c47-34 91-28 137-14 55 17 91 3 132-18 34-17 53-15 75-6"></path>
               <path class="ring-road" d="M119 107c49-39 128-45 179-4 48 38 63 106 36 164-28 61-98 94-165 77-65-17-109-77-104-143 3-39 22-72 54-94Z"></path>
-              <path class="core-line core-1" d="M73 212h276"></path>
-              <path class="core-line core-4" d="M207 75c-17 74-17 169 6 270"></path>
-              <path class="core-line core-6" d="M89 284c73 56 189 58 244 3"></path>
-              <path class="core-line core-14" d="M278 73c-10 85-43 188-88 275"></path>
+              <g id="metroNetwork"></g>
               <text class="map-label" x="210" y="63" text-anchor="middle">Nord</text>
               <text class="map-label" x="210" y="374" text-anchor="middle">Sud</text>
               <text class="map-label" x="49" y="213" text-anchor="middle">Ouest</text>
@@ -80,36 +77,6 @@
             <span><strong>Direction</strong> position de la station mystère depuis votre essai</span>
           </div>
 
-          <section class="stats-panel" aria-label="Statistiques du jour">
-            <div class="stats-head">
-              <h2>Stats du jour</h2>
-              <span id="answerStatus">Réponse masquée</span>
-            </div>
-            <div class="answer-box">
-              <span>Réponse</span>
-              <strong id="answerValue">À débloquer</strong>
-            </div>
-            <div class="stats-grid">
-              <div>
-                <span>Parties</span>
-                <strong id="statStarted">0</strong>
-              </div>
-              <div>
-                <span>Réussite</span>
-                <strong id="statWinRate">0%</strong>
-              </div>
-              <div>
-                <span>Moyenne</span>
-                <strong id="statAverage">—</strong>
-              </div>
-            </div>
-            <div class="distribution" id="distribution" aria-label="Distribution des victoires"></div>
-            <div class="top-guesses">
-              <span>Tentatives fréquentes</span>
-              <div id="topGuesses">Aucune tentative publique pour l'instant.</div>
-            </div>
-          </section>
-
           <div class="guesses" id="guesses" aria-live="polite"></div>
 
           <div class="actions">
@@ -117,6 +84,38 @@
             <button class="secondary-button" id="shareButton" type="button" disabled>Partager</button>
           </div>
         </section>
+      </section>
+
+      <section class="stats-panel stats-panel-wide" aria-label="Statistiques du jour">
+        <div class="stats-head">
+          <h2>Stats du jour</h2>
+          <span id="answerStatus">Réponse masquée</span>
+        </div>
+        <div class="stats-content">
+          <div class="answer-box">
+            <span>Réponse</span>
+            <strong id="answerValue">À débloquer</strong>
+          </div>
+          <div class="stats-grid">
+            <div>
+              <span>Parties</span>
+              <strong id="statStarted">0</strong>
+            </div>
+            <div>
+              <span>Réussite</span>
+              <strong id="statWinRate">0%</strong>
+            </div>
+            <div>
+              <span>Moyenne</span>
+              <strong id="statAverage">—</strong>
+            </div>
+          </div>
+          <div class="distribution" id="distribution" aria-label="Distribution des victoires"></div>
+          <div class="top-guesses">
+            <span>Tentatives fréquentes</span>
+            <div id="topGuesses">Aucune tentative publique pour l'instant.</div>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -137,6 +136,7 @@
     </template>
 
     <script src="stations.js"></script>
+    <script src="line-paths.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

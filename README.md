@@ -39,3 +39,21 @@ Paramètres importants :
 Le serveur écoute `0.0.0.0` par défaut, ce qui permet aux plateformes d'hébergement de le rendre accessible sur Internet.
 
 Un fichier `render.yaml` est inclus pour Render.
+
+## Page admin privée
+
+Une page privée existe à l'adresse :
+
+```text
+/admin?key=TON_MOT_DE_PASSE
+```
+
+Pour l'activer sur Render, ajoute une variable d'environnement :
+
+```text
+ADMIN_KEY=un-mot-de-passe-long
+```
+
+La page admin affiche les statistiques agrégées du serveur : parties lancées, victoires, défaites, distribution des essais, réponse du jour et tentatives les plus fréquentes.
+
+Note : ces statistiques sont gardées en mémoire par le serveur. Elles peuvent être remises à zéro si l'hébergeur redémarre l'application. Pour des statistiques permanentes, il faudra ajouter une base de données.
