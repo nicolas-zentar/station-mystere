@@ -403,6 +403,60 @@ h1 {
   flex-direction: column;
 }
 
+.mode-strip,
+.difficulty-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(216, 210, 199, 0.72);
+}
+
+.difficulty-strip.is-hidden {
+  display: none;
+}
+
+.mode-strip > span,
+.difficulty-strip > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.segmented-control {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.mode-button,
+.difficulty-button {
+  min-height: 38px;
+  border: 0;
+  border-left: 1px solid rgba(216, 210, 199, 0.86);
+  background: transparent;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.mode-button:first-child,
+.difficulty-button:first-child {
+  border-left: 0;
+}
+
+.mode-button.is-active,
+.difficulty-button.is-active {
+  background: var(--dark);
+  color: #fff;
+}
+
 .guess-form {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -474,6 +528,12 @@ input:focus {
 .secondary-button:disabled {
   color: #aaa;
   cursor: not-allowed;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  transform: none;
+  box-shadow: none;
 }
 
 .message {
@@ -583,6 +643,39 @@ input:focus {
   text-transform: uppercase;
 }
 
+.personal-modes {
+  display: grid;
+  gap: 12px;
+}
+
+.personal-mode {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(216, 210, 199, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.personal-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.personal-mode-head h4 {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.personal-mode-head span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
 .stats-head,
 .answer-box,
 .stats-grid {
@@ -681,7 +774,7 @@ input:focus {
   gap: 7px;
 }
 
-#topGuesses {
+.top-guesses > div {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -745,6 +838,12 @@ input:focus {
   gap: 14px;
 }
 
+.admin-empty {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
 .admin-day-card {
   display: grid;
   gap: 12px;
@@ -755,12 +854,78 @@ input:focus {
 }
 
 .admin-day-card .stats-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .admin-distribution {
   display: grid;
   gap: 5px;
+}
+
+.admin-station-menu {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(247, 243, 234, 0.72));
+}
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-tabs button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  padding: 0 11px;
+  font-weight: 850;
+}
+
+.admin-tabs button.is-active {
+  border-color: var(--dark);
+  background: var(--dark);
+  color: #fff;
+}
+
+.admin-station-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.admin-station-list {
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid rgba(216, 210, 199, 0.72);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-station-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border-top: 1px solid rgba(216, 210, 199, 0.58);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.admin-station-row:first-child {
+  border-top: 0;
+}
+
+.admin-station-row strong {
+  justify-self: end;
+  color: var(--ink);
+  font-size: 0.95rem;
 }
 
 .hit {
@@ -1025,6 +1190,34 @@ input:focus {
 
   .guess-form {
     grid-template-columns: 1fr;
+  }
+
+  .mode-strip,
+  .difficulty-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .segmented-control {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mode-button,
+  .difficulty-button {
+    border-top: 1px solid rgba(216, 210, 199, 0.86);
+  }
+
+  .mode-button:nth-child(1),
+  .mode-button:nth-child(2),
+  .difficulty-button:nth-child(1),
+  .difficulty-button:nth-child(2) {
+    border-top: 0;
+  }
+
+  .mode-button:nth-child(odd),
+  .difficulty-button:nth-child(odd) {
+    border-left: 0;
   }
 
   .primary-button {

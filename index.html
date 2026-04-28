@@ -10,7 +10,7 @@
     <main class="game-shell">
       <section class="topbar" aria-label="En-tête du jeu">
         <div class="title-lockup">
-          <p class="kicker">Paris, 6 essais</p>
+          <p class="kicker">Paris - Devine la station du jour !</p>
           <h1><button class="title-button" id="titleDailyButton" type="button" aria-label="Revenir à la station du jour">Station Mystère</button></h1>
           <div class="meta-row" aria-label="Informations de partie">
             <span id="stationCount">321 stations</span>
@@ -19,7 +19,7 @@
         </div>
         <div class="score-pill" aria-live="polite">
           <span class="score-label">Essais</span>
-          <span class="score-count"><strong id="attemptCount">0</strong><span>/6</span></span>
+          <span class="score-count"><strong id="attemptCount">0</strong><span>/<span id="maxAttemptCount">8</span></span></span>
         </div>
       </section>
 
@@ -53,6 +53,24 @@
         </aside>
 
         <section class="game-panel" aria-label="Partie">
+          <div class="mode-strip" aria-label="Mode de jeu">
+            <span>Mode de jeu</span>
+            <div class="segmented-control">
+              <button class="mode-button" type="button" data-mode="daily">Journalier</button>
+              <button class="mode-button" type="button" data-mode="random">Aléatoire</button>
+            </div>
+          </div>
+
+          <div class="difficulty-strip" id="difficultyControl" aria-label="Difficulté du mode aléatoire">
+            <span>Fréquentation</span>
+            <div class="segmented-control">
+              <button class="difficulty-button" type="button" data-difficulty="easy">Facile</button>
+              <button class="difficulty-button" type="button" data-difficulty="medium">Moyen</button>
+              <button class="difficulty-button" type="button" data-difficulty="hard">Difficile</button>
+              <button class="difficulty-button" type="button" data-difficulty="any">Aléatoire</button>
+            </div>
+          </div>
+
           <form class="guess-form" id="guessForm">
             <div class="input-wrap">
               <label for="guessInput">Station</label>
@@ -79,7 +97,7 @@
           <div class="guesses" id="guesses" aria-live="polite"></div>
 
           <div class="actions">
-            <button class="secondary-button" id="randomButton" type="button">Nouvelle station</button>
+            <button class="secondary-button" id="randomButton" type="button">Nouvelle partie</button>
             <button class="secondary-button" id="shareButton" type="button" disabled>Partager</button>
           </div>
         </section>
@@ -96,28 +114,58 @@
               <h3>Moi</h3>
               <span>Depuis ce navigateur</span>
             </div>
-            <div class="stats-grid personal-grid">
-              <div>
-                <span>Jouées</span>
-                <strong id="statStarted">0</strong>
-              </div>
-              <div>
-                <span>Réussite</span>
-                <strong id="statWinRate">0%</strong>
-              </div>
-              <div>
-                <span>Moyenne</span>
-                <strong id="statAverage">—</strong>
-              </div>
-              <div>
-                <span>Série</span>
-                <strong id="statStreak">0</strong>
-              </div>
-            </div>
-            <div class="distribution" id="distribution" aria-label="Distribution personnelle des victoires"></div>
-            <div class="top-guesses">
-              <span>Mes stations tentées</span>
-              <div id="topGuesses">Tes stations tentées apparaîtront ici.</div>
+            <div class="personal-modes">
+              <article class="personal-mode">
+                <div class="personal-mode-head">
+                  <h4>Mode journalier</h4>
+                  <span id="dailyPersonalStreak">Série 0</span>
+                </div>
+                <div class="stats-grid personal-grid">
+                  <div>
+                    <span>Jouées</span>
+                    <strong id="dailyPersonalStarted">0</strong>
+                  </div>
+                  <div>
+                    <span>Réussite</span>
+                    <strong id="dailyPersonalWinRate">—</strong>
+                  </div>
+                  <div>
+                    <span>Moyenne</span>
+                    <strong id="dailyPersonalAverage">—</strong>
+                  </div>
+                </div>
+                <div class="distribution" id="dailyPersonalDistribution" aria-label="Distribution personnelle des victoires en mode journalier"></div>
+                <div class="top-guesses">
+                  <span>Stations tentées</span>
+                  <div id="dailyPersonalTopGuesses" data-empty="Tes stations du jour apparaîtront ici.">Tes stations du jour apparaîtront ici.</div>
+                </div>
+              </article>
+
+              <article class="personal-mode">
+                <div class="personal-mode-head">
+                  <h4>Mode aléatoire</h4>
+                  <span id="randomPersonalStreak">Série 0</span>
+                </div>
+                <div class="stats-grid personal-grid">
+                  <div>
+                    <span>Jouées</span>
+                    <strong id="randomPersonalStarted">0</strong>
+                  </div>
+                  <div>
+                    <span>Réussite</span>
+                    <strong id="randomPersonalWinRate">—</strong>
+                  </div>
+                  <div>
+                    <span>Moyenne</span>
+                    <strong id="randomPersonalAverage">—</strong>
+                  </div>
+                </div>
+                <div class="distribution" id="randomPersonalDistribution" aria-label="Distribution personnelle des victoires en mode aléatoire"></div>
+                <div class="top-guesses">
+                  <span>Stations tentées</span>
+                  <div id="randomPersonalTopGuesses" data-empty="Tes stations aléatoires apparaîtront ici.">Tes stations aléatoires apparaîtront ici.</div>
+                </div>
+              </article>
             </div>
           </div>
 
@@ -171,6 +219,7 @@
     </template>
 
     <script src="stations.js"></script>
+    <script src="traffic.js"></script>
     <script src="line-paths.js"></script>
     <script src="script.js"></script>
   </body>

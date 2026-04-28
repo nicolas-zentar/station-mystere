@@ -26,6 +26,14 @@ http://127.0.0.1:3000
 
 Le fichier `stations.js` contient les 321 stations utilisées par le jeu.
 
+Le fichier `traffic.js` contient les chiffres de fréquentation Open Data RATP 2021 utilisés pour le mode aléatoire. Le jeu classe les stations par score :
+
+```text
+entrants directs officiels + 1 500 000 par correspondance supplémentaire
+```
+
+Ce bonus existe parce que le jeu de données RATP compte les entrants directs, mais pas les voyageurs en correspondance.
+
 ## Mettre le jeu en ligne
 
 Le projet est prêt pour un hébergement Node.js classique.
@@ -54,6 +62,8 @@ Pour l'activer sur Render, ajoute une variable d'environnement :
 ADMIN_KEY=un-mot-de-passe-long
 ```
 
-La page admin affiche les statistiques agrégées du serveur : parties lancées, victoires, défaites, distribution des essais, réponse du jour et tentatives les plus fréquentes.
+La page admin affiche les statistiques agrégées du serveur par mode : parties terminées, victoires, défaites, distribution des essais, réponse du jour et tentatives les plus fréquentes.
 
-Note : ces statistiques sont gardées en mémoire par le serveur. Elles peuvent être remises à zéro si l'hébergeur redémarre l'application. Pour des statistiques permanentes, il faudra ajouter une base de données.
+Les statistiques sont écrites dans `data/stats.json` par défaut. Sur un hébergeur avec disque éphémère, configure `STATS_FILE` vers un stockage persistant ou ajoute une vraie base de données.
+
+Pour le mode aléatoire, l'admin affiche aussi les stations par difficulté avec le nombre de parties terminées où chaque station était la réponse.

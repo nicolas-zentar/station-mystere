@@ -8,10 +8,23 @@ const root = __dirname;
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const adminKey = process.env.ADMIN_KEY || "";
-const maxAttempts = 6;
+const maxAttemptsByMode = {
+  daily: 8,
+  random: 8
+};
+const difficultyOrder = ["easy", "medium", "hard", "any"];
+const difficultyLabels = {
+  easy: "Facile",
+  medium: "Moyen",
+  hard: "Difficile",
+  any: "Aléatoire"
+};
+const statsPath = process.env.STATS_FILE || path.join(root, "data", "stats.json");
 const games = new Map();
 const stations = loadStations();
-const dailyStats = new Map();
+const stationTraffic = loadStationTraffic();
+const difficultyPools = buildDifficultyPools();
+const statsStore = loadStatsStore();
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -26,7 +39,7 @@ const server = http.createServer(async (request, response) => {
 
   try {
     if (url.pathname === "/api/game" && request.method === "GET") {
-      sendJson(response, createGame(url.searchParams.get("mode")));
+      sendJson(response, createGame(url.searchParams));
       return;
     }
 
@@ -71,37 +84,66 @@ server.listen(port, host, () => {
   console.log(`Station Mystère est prêt : ${localUrl}`);
 });
 
-function createGame(modeParam) {
+function createGame(searchParams) {
+  const modeParam = searchParams.get("mode");
   const mode = modeParam === "random" ? "random" : "daily";
+  const difficulty = mode === "random" ? normalizeDifficulty(searchParams.get("difficulty")) : "daily";
+  const playerId = normalizePlayerId(searchParams.get("playerId"));
+  const dayKey = getParisDayKey();
+  const maxAttempts = maxAttemptsByMode[mode];
+
+  if (mode === "daily" && playerId) {
+    const previous = getModeStats("daily", dayKey)?.players?.[playerId];
+    if (previous?.finished) {
+      return {
+        locked: true,
+        gameId: null,
+        mode,
+        dayKey,
+        difficulty,
+        difficultyLabel: "Station du jour",
+        maxAttempts,
+        stationCount: stations.length,
+        guesses: previous.guesses || [],
+        finished: true,
+        target: getDailyStationForKey(dayKey),
+        stats: publicDailyStats({ mode, dayKey, finished: true }),
+        message: previous.won ? "Tu as déjà trouvé la station du jour." : "Tu as déjà joué la station du jour.",
+        status: previous.won ? "success" : "error"
+      };
+    }
+  }
+
   const target = mode === "random"
-    ? stations[Math.floor(Math.random() * stations.length)]
-    : getDailyStation();
+    ? pickRandomStation(difficulty)
+    : getDailyStationForKey(dayKey);
   const gameId = crypto.randomUUID();
   const game = {
     id: gameId,
     mode,
+    difficulty,
+    playerId,
     target,
     guesses: [],
     finished: false,
     counted: false,
-    dayKey: dailyKey(),
+    dayKey,
+    maxAttempts,
     createdAt: Date.now()
   };
 
   games.set(gameId, game);
-
-  if (mode === "daily") {
-    statsFor(game.dayKey).started += 1;
-  }
-
   cleanupGames();
 
   return {
     gameId,
     mode,
+    dayKey,
+    difficulty,
+    difficultyLabel: mode === "random" ? difficultyLabels[difficulty] : "Station du jour",
     maxAttempts,
     stationCount: stations.length,
-    message: mode === "daily" ? "Partie du jour prête." : "Nouvelle station aléatoire."
+    message: mode === "daily" ? "Partie du jour prête." : `Station ${difficultyLabels[difficulty].toLowerCase()} prête.`
   };
 }
 
@@ -127,13 +169,9 @@ function handleGuess(body) {
   const attempt = evaluateGuess(station, game.target);
   game.guesses.push(attempt);
 
-  if (game.mode === "daily") {
-    recordDailyGuess(game, attempt.station);
-  }
-
   if (attempt.solved) {
     game.finished = true;
-    finalizeDailyGame(game, true);
+    finalizeGame(game, true);
     return stateFor(
       game,
       `Trouvé en ${game.guesses.length} essai${game.guesses.length > 1 ? "s" : ""}.`,
@@ -141,9 +179,9 @@ function handleGuess(body) {
     );
   }
 
-  if (game.guesses.length >= maxAttempts) {
+  if (game.guesses.length >= game.maxAttempts) {
     game.finished = true;
-    finalizeDailyGame(game, false);
+    finalizeGame(game, false);
     return stateFor(game, `Perdu : c'était ${game.target.name}.`, "error");
   }
 
@@ -154,12 +192,15 @@ function stateFor(game, message, status) {
   return {
     gameId: game.id,
     mode: game.mode,
-    maxAttempts,
+    dayKey: game.dayKey,
+    difficulty: game.difficulty,
+    difficultyLabel: game.mode === "random" ? difficultyLabels[game.difficulty] : "Station du jour",
+    maxAttempts: game.maxAttempts,
     stationCount: stations.length,
     guesses: game.guesses,
     finished: game.finished,
     target: game.finished ? game.target : null,
-    stats: game.mode === "daily" ? publicStats(game) : null,
+    stats: game.mode === "daily" ? publicDailyStats(game) : null,
     message,
     status
   };
@@ -167,100 +208,143 @@ function stateFor(game, message, status) {
 
 function statsResponse(gameId) {
   const game = games.get(gameId);
-  return publicStats(game);
+  return publicDailyStats(game || { mode: "daily", dayKey: getParisDayKey(), finished: false });
 }
 
 function adminStatsResponse() {
-  const days = [...dailyStats.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([key, stats]) => {
-      const completed = stats.wins + stats.losses;
-      const topGuesses = [...stats.guesses.entries()]
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
-        .slice(0, 20)
-        .map(([name, count]) => ({ name, count }));
-
-      return {
-        dayKey: key,
-        started: stats.started,
-        completed,
-        wins: stats.wins,
-        losses: stats.losses,
-        winRate: completed ? Math.round((stats.wins / completed) * 100) : 0,
-        averageAttempts: stats.wins ? (stats.winAttemptTotal / stats.wins).toFixed(1).replace(".", ",") : "—",
-        distribution: stats.distribution,
-        topGuesses,
-        answer: getDailyStationForKey(key)
-      };
-    });
-
   return {
     generatedAt: new Date().toISOString(),
-    activeGames: games.size,
-    days
+    activeGames: [...games.values()].filter((game) => !game.finished).length,
+    modes: [
+      {
+        mode: "daily",
+        label: "Mode journalier",
+        days: adminModeDays("daily")
+      },
+      {
+        mode: "random",
+        label: "Mode aléatoire",
+        days: adminModeDays("random"),
+        stationMenu: adminStationMenu()
+      }
+    ]
   };
 }
 
-function publicStats(game) {
-  const key = game?.dayKey || dailyKey();
-  const stats = statsFor(key);
-  const completed = stats.wins + stats.losses;
-  const averageAttempts = stats.wins
-    ? (stats.winAttemptTotal / stats.wins).toFixed(1).replace(".", ",")
-    : "—";
+function adminModeDays(mode) {
+  return Object.keys(statsStore.days || {})
+    .sort((a, b) => b.localeCompare(a))
+    .map((dayKey) => {
+      const stats = getModeStats(mode, dayKey);
+      if (!stats) return null;
+
+      const completed = completedCount(stats);
+      if (!completed) return null;
+
+      const day = {
+        dayKey,
+        completed,
+        wins: stats.wins,
+        losses: stats.losses,
+        winRate: winRate(stats),
+        averageAttempts: averageAttempts(stats),
+        distribution: normalizedDistribution(stats.distribution),
+        topGuesses: topGuesses(stats, 20)
+      };
+
+      if (mode === "daily") {
+        day.answer = getDailyStationForKey(dayKey);
+      } else {
+        day.difficulties = difficultyOrder.map((difficulty) => {
+          const difficultyStats = stats.difficulties?.[difficulty] || createAggregateStats();
+          return {
+            difficulty,
+            label: difficultyLabels[difficulty],
+            completed: completedCount(difficultyStats),
+            wins: difficultyStats.wins,
+            losses: difficultyStats.losses,
+            winRate: winRate(difficultyStats),
+            averageAttempts: averageAttempts(difficultyStats),
+            stationPlays: stationPlays(difficultyStats.targets)
+          };
+        });
+      }
+
+      return day;
+    })
+    .filter(Boolean);
+}
+
+function publicDailyStats(game) {
+  const key = game?.dayKey || getParisDayKey();
+  const stats = getModeStats("daily", key) || createModeStats("daily");
+  const completed = completedCount(stats);
   const unlocked = game?.mode === "daily" && game.finished;
-  const topGuesses = unlocked ? [...stats.guesses.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
-    .slice(0, 8)
-    .map(([name, count]) => ({ name, count })) : [];
 
   return {
     dayKey: key,
     unlocked,
-    started: stats.started,
+    started: completed,
     completed,
     wins: stats.wins,
     losses: stats.losses,
-    winRate: completed ? Math.round((stats.wins / completed) * 100) : 0,
-    averageAttempts,
-    distribution: stats.distribution,
-    topGuesses,
-    answer: unlocked ? getDailyStation() : null
+    winRate: winRate(stats),
+    averageAttempts: averageAttempts(stats),
+    distribution: normalizedDistribution(stats.distribution),
+    topGuesses: unlocked ? topGuesses(stats, 8) : [],
+    answer: unlocked ? getDailyStationForKey(key) : null
   };
 }
 
-function statsFor(key) {
-  if (!dailyStats.has(key)) {
-    dailyStats.set(key, {
-      started: 0,
-      wins: 0,
-      losses: 0,
-      winAttemptTotal: 0,
-      distribution: [0, 0, 0, 0, 0, 0],
-      guesses: new Map()
-    });
+function finalizeGame(game, won) {
+  if (game.counted) return;
+
+  const stats = statsFor(game.mode, game.dayKey);
+  recordCompletedGame(stats, game, won);
+
+  if (game.mode === "daily" && game.playerId) {
+    stats.players[game.playerId] = {
+      finished: true,
+      won,
+      attempts: game.guesses.length,
+      guesses: game.guesses,
+      completedAt: new Date().toISOString()
+    };
   }
 
-  return dailyStats.get(key);
+  if (game.mode === "random") {
+    if (!stats.difficulties[game.difficulty]) {
+      stats.difficulties[game.difficulty] = createAggregateStats();
+    }
+    recordCompletedGame(stats.difficulties[game.difficulty], game, won);
+  }
+
+  game.counted = true;
+  saveStatsStore();
 }
 
-function recordDailyGuess(game, station) {
-  const stats = statsFor(game.dayKey);
-  stats.guesses.set(station.name, (stats.guesses.get(station.name) || 0) + 1);
-}
+function recordCompletedGame(stats, game, won) {
+  stats.targets[game.target.name] = (stats.targets[game.target.name] || 0) + 1;
 
-function finalizeDailyGame(game, won) {
-  if (game.mode !== "daily" || game.counted) return;
-
-  const stats = statsFor(game.dayKey);
   if (won) {
     stats.wins += 1;
     stats.winAttemptTotal += game.guesses.length;
-    stats.distribution[game.guesses.length - 1] += 1;
+    incrementDistribution(stats, game.guesses.length);
   } else {
     stats.losses += 1;
   }
-  game.counted = true;
+
+  game.guesses.forEach((guess) => {
+    stats.guesses[guess.station.name] = (stats.guesses[guess.station.name] || 0) + 1;
+  });
+}
+
+function incrementDistribution(stats, attempts) {
+  const index = attempts - 1;
+  while (stats.distribution.length <= index) {
+    stats.distribution.push(0);
+  }
+  stats.distribution[index] += 1;
 }
 
 function evaluateGuess(station, answer) {
@@ -367,10 +451,6 @@ function getDistanceBand(distanceKm) {
   return "far";
 }
 
-function getDailyStation() {
-  return getDailyStationForKey(dailyKey());
-}
-
 function getDailyStationForKey(key) {
   const start = new Date(Date.UTC(2026, 0, 1));
   const [year, month, dayOfMonth] = key.split("-").map(Number);
@@ -379,15 +459,58 @@ function getDailyStationForKey(key) {
   return stations[((day % stations.length) + stations.length) % stations.length];
 }
 
-function dailyKey() {
+function getParisDayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("fr-FR", {
     timeZone: "Europe/Paris",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function normalizeDifficulty(value) {
+  return difficultyLabels[value] ? value : "medium";
+}
+
+function pickRandomStation(difficulty) {
+  const pool = stations.filter((station) => stationMatchesDifficulty(station, difficulty));
+  return pool[Math.floor(Math.random() * pool.length)] || stations[Math.floor(Math.random() * stations.length)];
+}
+
+function stationMatchesDifficulty(station, difficulty) {
+  if (difficulty === "any") return true;
+  return difficultyPools[difficulty]?.has(station.name) || false;
+}
+
+function buildDifficultyPools() {
+  const ranked = stations
+    .map((station) => ({
+      name: station.name,
+      score: getPopularityScore(station)
+    }))
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr"));
+  const third = Math.ceil(ranked.length / 3);
+
+  return {
+    easy: new Set(ranked.slice(0, third).map((station) => station.name)),
+    medium: new Set(ranked.slice(third, third * 2).map((station) => station.name)),
+    hard: new Set(ranked.slice(third * 2).map((station) => station.name))
+  };
+}
+
+function getPopularityScore(station) {
+  const traffic = stationTraffic[station.name];
+  if (traffic) return traffic.score;
+
+  return Math.max(0, station.lines.length - 1) * 1_500_000;
+}
+
+function normalizePlayerId(value) {
+  const playerId = String(value || "").trim();
+  if (/^[a-zA-Z0-9_-]{12,80}$/.test(playerId)) return playerId;
+  return "";
 }
 
 function findStation(value) {
@@ -416,12 +539,221 @@ function toRadians(value) {
   return value * Math.PI / 180;
 }
 
+function completedCount(stats) {
+  return stats.wins + stats.losses;
+}
+
+function winRate(stats) {
+  const completed = completedCount(stats);
+  return completed ? Math.round((stats.wins / completed) * 100) : 0;
+}
+
+function averageAttempts(stats) {
+  return stats.wins ? (stats.winAttemptTotal / stats.wins).toFixed(1).replace(".", ",") : "—";
+}
+
+function topGuesses(stats, limit) {
+  return Object.entries(stats.guesses || {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+    .slice(0, limit)
+    .map(([name, count]) => ({ name, count }));
+}
+
+function stationPlays(targets = {}) {
+  return Object.entries(targets)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+    .map(([name, count]) => ({ name, count }));
+}
+
+function adminStationMenu() {
+  const countsByDifficulty = Object.fromEntries(
+    difficultyOrder.map((difficulty) => [difficulty, new Map()])
+  );
+
+  Object.values(statsStore.days || {}).forEach((day) => {
+    const random = day?.random;
+    if (!random?.difficulties) return;
+    difficultyOrder.forEach((difficulty) => {
+      const targets = random.difficulties[difficulty]?.targets || {};
+      const counts = countsByDifficulty[difficulty];
+      Object.entries(targets).forEach(([name, count]) => {
+        counts.set(name, (counts.get(name) || 0) + Number(count));
+      });
+    });
+  });
+
+  return difficultyOrder.map((difficulty) => {
+    const counts = countsByDifficulty[difficulty];
+    const pool = stations
+      .filter((station) => stationMatchesDifficulty(station, difficulty))
+      .map((station) => ({
+        name: station.name,
+        count: counts.get(station.name) || 0,
+        score: getPopularityScore(station)
+      }))
+      .sort((a, b) => b.count - a.count || b.score - a.score || a.name.localeCompare(b.name, "fr"));
+
+    return {
+      difficulty,
+      label: difficultyLabels[difficulty],
+      stationCount: pool.length,
+      played: [...counts.values()].reduce((sum, count) => sum + count, 0),
+      stations: pool.map(({ name, count }) => ({ name, count }))
+    };
+  });
+}
+
+function normalizedDistribution(distribution) {
+  const normalized = Array.isArray(distribution) ? distribution.slice(0, maxAttemptsByMode.random) : [];
+  while (normalized.length < maxAttemptsByMode.random) {
+    normalized.push(0);
+  }
+  return normalized;
+}
+
+function statsFor(mode, dayKey) {
+  if (!statsStore.days[dayKey]) {
+    statsStore.days[dayKey] = {};
+  }
+  if (!statsStore.days[dayKey][mode]) {
+    statsStore.days[dayKey][mode] = createModeStats(mode);
+  }
+  return statsStore.days[dayKey][mode];
+}
+
+function getModeStats(mode, dayKey) {
+  return statsStore.days?.[dayKey]?.[mode] || null;
+}
+
+function createModeStats(mode) {
+  const stats = createAggregateStats();
+  if (mode === "daily") {
+    stats.players = {};
+  }
+  if (mode === "random") {
+    stats.difficulties = Object.fromEntries(
+      difficultyOrder.map((difficulty) => [difficulty, createAggregateStats()])
+    );
+  }
+  return stats;
+}
+
+function createAggregateStats() {
+  return {
+    wins: 0,
+    losses: 0,
+    winAttemptTotal: 0,
+    distribution: Array(maxAttemptsByMode.random).fill(0),
+    guesses: {},
+    targets: {}
+  };
+}
+
+function loadStatsStore() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+    return normalizeStatsStore(parsed);
+  } catch {
+    return createStatsStore();
+  }
+}
+
+function createStatsStore() {
+  return {
+    version: 2,
+    days: {}
+  };
+}
+
+function normalizeStatsStore(parsed) {
+  const store = createStatsStore();
+  if (!parsed || typeof parsed !== "object" || !parsed.days || typeof parsed.days !== "object") {
+    return store;
+  }
+
+  Object.entries(parsed.days).forEach(([dayKey, day]) => {
+    if (!day || typeof day !== "object") return;
+    store.days[dayKey] = {};
+    ["daily", "random"].forEach((mode) => {
+      if (day[mode]) {
+        store.days[dayKey][mode] = normalizeModeStats(day[mode], mode);
+      }
+    });
+  });
+
+  return store;
+}
+
+function normalizeModeStats(input, mode) {
+  const stats = {
+    ...createModeStats(mode),
+    wins: Number(input.wins) || 0,
+    losses: Number(input.losses) || 0,
+    winAttemptTotal: Number(input.winAttemptTotal) || 0,
+    distribution: normalizedDistribution(input.distribution),
+    guesses: normalizeCounterObject(input.guesses),
+    targets: normalizeCounterObject(input.targets)
+  };
+
+  if (mode === "daily") {
+    stats.players = input.players && typeof input.players === "object" ? input.players : {};
+  }
+
+  if (mode === "random") {
+    stats.difficulties = Object.fromEntries(
+      difficultyOrder.map((difficulty) => [
+        difficulty,
+        normalizeDifficultyStats(input.difficulties?.[difficulty])
+      ])
+    );
+  }
+
+  return stats;
+}
+
+function normalizeDifficultyStats(input) {
+  if (!input || typeof input !== "object") return createAggregateStats();
+  return {
+    ...createAggregateStats(),
+    wins: Number(input.wins) || 0,
+    losses: Number(input.losses) || 0,
+    winAttemptTotal: Number(input.winAttemptTotal) || 0,
+    distribution: normalizedDistribution(input.distribution),
+    guesses: normalizeCounterObject(input.guesses),
+    targets: normalizeCounterObject(input.targets)
+  };
+}
+
+function normalizeCounterObject(input) {
+  if (!input || typeof input !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(input)
+      .filter(([, count]) => Number.isFinite(Number(count)) && Number(count) > 0)
+      .map(([name, count]) => [name, Number(count)])
+  );
+}
+
+function saveStatsStore() {
+  fs.mkdirSync(path.dirname(statsPath), { recursive: true });
+  const tempPath = `${statsPath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(statsStore, null, 2));
+  fs.renameSync(tempPath, statsPath);
+}
+
 function loadStations() {
   const code = fs.readFileSync(path.join(root, "stations.js"), "utf8");
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(`${code}\nthis.__stations = stations;`, sandbox);
   return sandbox.__stations;
+}
+
+function loadStationTraffic() {
+  const code = fs.readFileSync(path.join(root, "traffic.js"), "utf8");
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(`${code}\nthis.__traffic = stationTraffic;`, sandbox);
+  return sandbox.__traffic || {};
 }
 
 function cleanupGames() {

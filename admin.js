@@ -1,7 +1,8 @@
 const key = new URLSearchParams(location.search).get("key") || "";
 const adminGenerated = document.querySelector("#adminGenerated");
 const adminActive = document.querySelector("#adminActive");
-const adminDays = document.querySelector("#adminDays");
+const adminDaily = document.querySelector("#adminDaily");
+const adminRandom = document.querySelector("#adminRandom");
 
 loadAdminStats();
 
@@ -18,21 +19,37 @@ async function loadAdminStats() {
   } catch (error) {
     adminGenerated.textContent = "Erreur";
     adminActive.textContent = "Accès refusé";
-    adminDays.textContent = error.message;
+    adminDaily.textContent = error.message;
+    adminRandom.textContent = error.message;
   }
 }
 
 function renderAdminStats(data) {
   adminGenerated.textContent = new Date(data.generatedAt).toLocaleString("fr-FR");
   adminActive.textContent = `${data.activeGames} partie${data.activeGames > 1 ? "s" : ""} active${data.activeGames > 1 ? "s" : ""}`;
-  adminDays.innerHTML = "";
 
-  if (!data.days.length) {
-    adminDays.textContent = "Aucune statistique pour l'instant.";
+  const daily = data.modes?.find((mode) => mode.mode === "daily");
+  const random = data.modes?.find((mode) => mode.mode === "random");
+  renderModeStats(daily, adminDaily);
+  renderModeStats(random, adminRandom);
+}
+
+function renderModeStats(modeData, node) {
+  node.innerHTML = "";
+
+  if (modeData?.mode === "random" && modeData.stationMenu?.length) {
+    node.append(renderStationMenu(modeData.stationMenu));
+  }
+
+  if (!modeData?.days?.length) {
+    const empty = document.createElement("p");
+    empty.className = "admin-empty";
+    empty.textContent = "Aucune partie terminée pour l'instant.";
+    node.append(empty);
     return;
   }
 
-  data.days.forEach((day) => {
+  modeData.days.forEach((day) => {
     const card = document.createElement("article");
     card.className = "admin-day-card";
 
@@ -40,13 +57,16 @@ function renderAdminStats(data) {
       ? day.topGuesses.map((guess) => `<span class="guess-chip">${escapeHtml(guess.name)} · ${guess.count}</span>`).join("")
       : "<span>Aucune tentative.</span>";
 
+    const headingValue = modeData.mode === "daily"
+      ? escapeHtml(day.answer.name)
+      : `${day.completed} partie${day.completed > 1 ? "s" : ""}`;
+
     card.innerHTML = `
       <div class="stats-head">
         <h2>${escapeHtml(day.dayKey)}</h2>
-        <span>${escapeHtml(day.answer.name)}</span>
+        <span>${headingValue}</span>
       </div>
       <div class="stats-grid">
-        <div><span>Parties</span><strong>${day.started}</strong></div>
         <div><span>Terminées</span><strong>${day.completed}</strong></div>
         <div><span>Réussite</span><strong>${day.winRate}%</strong></div>
         <div><span>Victoires</span><strong>${day.wins}</strong></div>
@@ -54,14 +74,97 @@ function renderAdminStats(data) {
         <div><span>Moyenne</span><strong>${day.averageAttempts}</strong></div>
       </div>
       <div class="admin-distribution">${renderDistribution(day.distribution)}</div>
+      ${modeData.mode === "random" ? renderDifficultyBreakdown(day.difficulties) : ""}
       <div class="top-guesses">
         <span>Tentatives les plus fréquentes</span>
         <div>${topGuesses}</div>
       </div>
     `;
 
-    adminDays.append(card);
+    node.append(card);
   });
+}
+
+function renderStationMenu(groups) {
+  let selected = groups.find((group) => group.difficulty === "easy") || groups[0];
+  const card = document.createElement("article");
+  card.className = "admin-day-card admin-station-menu";
+
+  const head = document.createElement("div");
+  head.className = "stats-head";
+  head.innerHTML = `
+    <h2>Stations par difficulté</h2>
+    <span>Réponses jouées</span>
+  `;
+
+  const tabs = document.createElement("div");
+  tabs.className = "admin-tabs";
+
+  const summary = document.createElement("p");
+  summary.className = "admin-station-summary";
+
+  const list = document.createElement("div");
+  list.className = "admin-station-list";
+
+  function renderSelected() {
+    tabs.querySelectorAll("button").forEach((button) => {
+      const active = button.dataset.difficulty === selected.difficulty;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+
+    summary.textContent = `${selected.stationCount} stations · ${selected.played} partie${selected.played > 1 ? "s" : ""} terminée${selected.played > 1 ? "s" : ""}`;
+    list.innerHTML = "";
+
+    selected.stations.forEach((station) => {
+      const row = document.createElement("div");
+      row.className = "admin-station-row";
+
+      const name = document.createElement("span");
+      name.textContent = station.name;
+
+      const count = document.createElement("strong");
+      count.textContent = station.count;
+
+      row.append(name, count);
+      list.append(row);
+    });
+  }
+
+  groups.forEach((group) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.difficulty = group.difficulty;
+    button.textContent = group.label;
+    button.addEventListener("click", () => {
+      selected = group;
+      renderSelected();
+    });
+    tabs.append(button);
+  });
+
+  card.append(head, tabs, summary, list);
+  renderSelected();
+  return card;
+}
+
+function renderDifficultyBreakdown(difficulties) {
+  if (!difficulties?.length) return "";
+  const rows = difficulties
+    .filter((difficulty) => difficulty.completed)
+    .map((difficulty) => `
+      <span class="guess-chip">${escapeHtml(difficulty.label)} · ${difficulty.completed} · ${difficulty.winRate}%</span>
+    `)
+    .join("");
+
+  if (!rows) return "";
+
+  return `
+    <div class="top-guesses admin-breakdown">
+      <span>Par difficulté</span>
+      <div>${rows}</div>
+    </div>
+  `;
 }
 
 function renderDistribution(distribution) {

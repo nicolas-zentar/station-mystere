@@ -1,5 +1,14 @@
-const maxAttempts = 6;
-const personalStatsKey = "stationMysterePersonalStats:v1";
+const defaultMaxAttempts = 8;
+const personalStatsKey = "stationMysterePersonalStats:v2";
+const legacyPersonalStatsKey = "stationMysterePersonalStats:v1";
+const playerIdKey = "stationMysterePlayerId:v1";
+const randomDifficultyKey = "stationMystereRandomDifficulty:v1";
+const difficultyLabels = {
+  easy: "Facile",
+  medium: "Moyen",
+  hard: "Difficile",
+  any: "Aléatoire"
+};
 const useBackend = location.protocol === "http:" || location.protocol === "https:";
 const seinePoints = [
   { lat: 48.8279, lng: 2.2262 },
@@ -35,22 +44,30 @@ let gameId = null;
 let guesses = [];
 let finished = false;
 let currentMode = "daily";
+let currentMaxAttempts = defaultMaxAttempts;
+let currentDifficulty = loadRandomDifficulty();
 let activeGameKey = null;
 let personalStats = loadPersonalStats();
 let dailyStats = null;
 let mapZoomed = false;
+const playerId = getPlayerId();
 
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
+const submitButton = guessForm.querySelector("button[type='submit']");
 const miniMap = document.querySelector("#miniMap");
 const stationList = document.querySelector("#stationList");
 const guessesNode = document.querySelector("#guesses");
 const messageNode = document.querySelector("#message");
 const attemptCount = document.querySelector("#attemptCount");
+const maxAttemptCount = document.querySelector("#maxAttemptCount");
 const randomButton = document.querySelector("#randomButton");
 const dailyButton = document.querySelector("#dailyButton");
 const titleDailyButton = document.querySelector("#titleDailyButton");
 const shareButton = document.querySelector("#shareButton");
+const modeButtons = [...document.querySelectorAll("[data-mode]")];
+const difficultyControl = document.querySelector("#difficultyControl");
+const difficultyButtons = [...document.querySelectorAll("[data-difficulty]")];
 const mapStatus = document.querySelector("#mapStatus");
 const mapGeography = document.querySelector("#mapGeography");
 const metroNetwork = document.querySelector("#metroNetwork");
@@ -61,12 +78,24 @@ const dataMode = document.querySelector("#dataMode");
 const stationDots = document.querySelector("#stationDots");
 const answerStatus = document.querySelector("#answerStatus");
 const answerValue = document.querySelector("#answerValue");
-const statStarted = document.querySelector("#statStarted");
-const statWinRate = document.querySelector("#statWinRate");
-const statAverage = document.querySelector("#statAverage");
-const statStreak = document.querySelector("#statStreak");
-const distributionNode = document.querySelector("#distribution");
-const topGuessesNode = document.querySelector("#topGuesses");
+const personalStatNodes = {
+  daily: {
+    played: document.querySelector("#dailyPersonalStarted"),
+    winRate: document.querySelector("#dailyPersonalWinRate"),
+    average: document.querySelector("#dailyPersonalAverage"),
+    streak: document.querySelector("#dailyPersonalStreak"),
+    distribution: document.querySelector("#dailyPersonalDistribution"),
+    topGuesses: document.querySelector("#dailyPersonalTopGuesses")
+  },
+  random: {
+    played: document.querySelector("#randomPersonalStarted"),
+    winRate: document.querySelector("#randomPersonalWinRate"),
+    average: document.querySelector("#randomPersonalAverage"),
+    streak: document.querySelector("#randomPersonalStreak"),
+    distribution: document.querySelector("#randomPersonalDistribution"),
+    topGuesses: document.querySelector("#randomPersonalTopGuesses")
+  }
+};
 const dailyStarted = document.querySelector("#dailyStarted");
 const dailyWinRate = document.querySelector("#dailyWinRate");
 const dailyAverage = document.querySelector("#dailyAverage");
@@ -90,7 +119,7 @@ guessForm.addEventListener("submit", (event) => {
 });
 
 randomButton.addEventListener("click", () => {
-  startGame("random");
+  startGame(currentMode);
 });
 
 dailyButton.addEventListener("click", () => {
@@ -99,6 +128,21 @@ dailyButton.addEventListener("click", () => {
 
 titleDailyButton.addEventListener("click", () => {
   startGame("daily");
+});
+
+modeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    startGame(button.dataset.mode);
+  });
+});
+
+difficultyButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setRandomDifficulty(button.dataset.difficulty);
+    if (currentMode === "random") {
+      startGame("random");
+    }
+  });
 });
 
 miniMap.addEventListener("click", toggleMapZoom);
@@ -119,6 +163,8 @@ shareButton.addEventListener("click", async () => {
   }
 });
 
+renderDifficultyButtons();
+renderModeControls();
 init();
 
 async function init() {
@@ -132,7 +178,7 @@ async function init() {
     }
   }
 
-  startLocalGame(getDailyStation(), "daily");
+  startLocalGame("daily");
 }
 
 async function startGame(mode) {
@@ -146,14 +192,19 @@ async function startGame(mode) {
     }
   }
 
-  const nextTarget = mode === "random"
-    ? stations[Math.floor(Math.random() * stations.length)]
-    : getDailyStation();
-  startLocalGame(nextTarget, mode);
+  startLocalGame(mode);
 }
 
 async function startBackendGame(mode) {
-  const response = await fetch(`/api/game?mode=${encodeURIComponent(mode)}`);
+  const params = new URLSearchParams({
+    mode,
+    playerId
+  });
+  if (mode === "random") {
+    params.set("difficulty", currentDifficulty);
+  }
+
+  const response = await fetch(`/api/game?${params.toString()}`);
   const game = await response.json();
 
   if (!response.ok) {
@@ -161,35 +212,63 @@ async function startBackendGame(mode) {
   }
 
   currentMode = game.mode;
-  gameId = game.gameId;
+  currentMaxAttempts = game.maxAttempts || defaultMaxAttempts;
+  gameId = game.gameId || null;
   target = null;
-  revealedTarget = null;
-  guesses = [];
-  finished = false;
-  activeGameKey = game.gameId;
-  dailyStats = null;
-  shareButton.disabled = true;
-  dataMode.textContent = currentMode === "daily" ? "Partie du jour" : "Mode aléatoire";
-  setMessage(currentMode === "daily" ? "Partie du jour prête." : "Nouvelle station aléatoire.", "");
+  revealedTarget = game.target || null;
+  guesses = game.guesses || [];
+  finished = Boolean(game.locked);
+  activeGameKey = currentMode === "daily" ? `daily-${game.dayKey}` : game.gameId;
+  dailyStats = game.stats || null;
+  shareButton.disabled = !finished;
+  dataMode.textContent = currentMode === "daily"
+    ? "Mode journalier"
+    : `Aléatoire - ${game.difficultyLabel || difficultyLabels[currentDifficulty]}`;
+  renderModeControls();
+  setMessage(game.message || (currentMode === "daily" ? "Partie du jour prête." : "Nouvelle station aléatoire."), game.status || "");
   render();
   renderPersonalStats();
-  await refreshDailyStats();
-  guessInput.focus();
+  if (dailyStats) {
+    renderDailyStats(dailyStats, revealedTarget);
+  } else {
+    await refreshDailyStats();
+  }
+  if (!finished) {
+    guessInput.focus();
+  }
 }
 
-function startLocalGame(nextTarget, mode) {
+function startLocalGame(mode) {
   currentMode = mode;
+  currentMaxAttempts = defaultMaxAttempts;
   gameId = null;
-  target = nextTarget;
+  target = mode === "random" ? pickLocalRandomStation(currentDifficulty) : getDailyStation();
   revealedTarget = null;
   guesses = [];
   finished = false;
-  activeGameKey = `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  activeGameKey = mode === "daily" ? `daily-${getParisDayKey()}` : `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   dailyStats = null;
   guessInput.value = "";
   shareButton.disabled = true;
-  dataMode.textContent = mode === "daily" ? "Partie du jour" : "Mode aléatoire";
-  setMessage(mode === "daily" ? "Prêt pour la station du jour." : "Nouvelle station aléatoire.", "");
+  dataMode.textContent = mode === "daily" ? "Mode journalier" : `Aléatoire - ${difficultyLabels[currentDifficulty]}`;
+  renderModeControls();
+
+  if (mode === "daily") {
+    const lock = personalStats.dailyLocks?.[getParisDayKey()];
+    if (lock?.finished) {
+      guesses = lock.guesses || [];
+      finished = true;
+      revealedTarget = target;
+      shareButton.disabled = false;
+      setMessage(lock.won ? "Tu as déjà trouvé la station du jour." : "Tu as déjà joué la station du jour.", lock.won ? "success" : "error");
+      render();
+      renderPersonalStats(revealedTarget);
+      renderDailyStats(null, revealedTarget);
+      return;
+    }
+  }
+
+  setMessage(mode === "daily" ? "Prêt pour la station du jour." : `Station ${difficultyLabels[currentDifficulty].toLowerCase()} prête.`, "");
   render();
   renderPersonalStats();
   renderDailyStats(null);
@@ -229,6 +308,7 @@ async function submitBackendGuess(guess) {
   guesses = data.guesses;
   finished = data.finished;
   revealedTarget = data.target || null;
+  currentMaxAttempts = data.maxAttempts || currentMaxAttempts;
   dailyStats = data.stats || dailyStats;
   guessInput.value = "";
   shareButton.disabled = !finished;
@@ -264,7 +344,7 @@ function submitLocalGuess(value) {
     shareButton.disabled = false;
     recordPersonalResult(revealedTarget);
     setMessage(`Trouvé en ${guesses.length} essai${guesses.length > 1 ? "s" : ""}.`, "success");
-  } else if (guesses.length >= maxAttempts) {
+  } else if (guesses.length >= currentMaxAttempts) {
     finished = true;
     revealedTarget = target;
     shareButton.disabled = false;
@@ -281,6 +361,10 @@ function submitLocalGuess(value) {
 
 function render() {
   attemptCount.textContent = guesses.length;
+  maxAttemptCount.textContent = currentMaxAttempts;
+  guessInput.disabled = finished;
+  submitButton.disabled = finished;
+  randomButton.textContent = currentMode === "daily" ? "Recharger le journalier" : "Nouvelle station aléatoire";
   guessesNode.innerHTML = "";
 
   guesses.forEach((guess) => {
@@ -295,12 +379,19 @@ function render() {
 
 function renderPersonalStats(answer = revealedTarget) {
   answerStatus.textContent = answer ? "Réponse révélée" : "Réponse masquée";
-  statStarted.textContent = personalStats.played;
-  statWinRate.textContent = personalStats.played ? `${Math.round((personalStats.wins / personalStats.played) * 100)}%` : "—";
-  statAverage.textContent = personalStats.wins ? (personalStats.totalWinAttempts / personalStats.wins).toFixed(1).replace(".", ",") : "—";
-  statStreak.textContent = personalStats.currentStreak;
-  renderDistribution(personalStats.distribution);
-  renderTopGuesses(getPersonalTopGuesses());
+  renderPersonalModeStats("daily");
+  renderPersonalModeStats("random");
+}
+
+function renderPersonalModeStats(mode) {
+  const stats = personalStats.modes[mode];
+  const nodes = personalStatNodes[mode];
+  nodes.played.textContent = stats.played;
+  nodes.winRate.textContent = stats.played ? `${Math.round((stats.wins / stats.played) * 100)}%` : "—";
+  nodes.average.textContent = stats.wins ? (stats.totalWinAttempts / stats.wins).toFixed(1).replace(".", ",") : "—";
+  nodes.streak.textContent = `Série ${stats.currentStreak}`;
+  renderDistribution(stats.distribution, nodes.distribution);
+  renderTopGuesses(getPersonalTopGuesses(mode), nodes.topGuesses);
 }
 
 function renderDailyStats(stats, answer = revealedTarget) {
@@ -310,11 +401,11 @@ function renderDailyStats(stats, answer = revealedTarget) {
   dailyStarted.textContent = stats?.started ?? "—";
   dailyWinRate.textContent = stats ? `${stats.winRate}%` : "—";
   dailyAverage.textContent = stats?.averageAttempts ?? "—";
-  renderDistribution(stats?.distribution || [0, 0, 0, 0, 0, 0], dailyDistribution);
+  renderDistribution(stats?.distribution || emptyDistribution(), dailyDistribution);
   renderTopGuesses(stats?.topGuesses || [], dailyTopGuesses, unlocked);
 }
 
-function renderDistribution(distribution, node = distributionNode) {
+function renderDistribution(distribution, node) {
   const max = Math.max(...distribution, 1);
   node.innerHTML = "";
 
@@ -340,7 +431,7 @@ function renderDistribution(distribution, node = distributionNode) {
   });
 }
 
-function renderTopGuesses(topGuesses, node = topGuessesNode, unlocked = true) {
+function renderTopGuesses(topGuesses, node, unlocked = true) {
   node.innerHTML = "";
 
   if (!unlocked) {
@@ -349,9 +440,7 @@ function renderTopGuesses(topGuesses, node = topGuessesNode, unlocked = true) {
   }
 
   if (!topGuesses.length) {
-    node.textContent = node === topGuessesNode
-      ? "Tes stations tentées apparaîtront ici."
-      : "Aucune tentative publique pour l'instant.";
+    node.textContent = node.dataset.empty || "Aucune tentative publique pour l'instant.";
     return;
   }
 
@@ -391,78 +480,197 @@ function toggleMapZoom() {
 }
 
 function recordPersonalResult(answer) {
-  if (!answer || !activeGameKey || personalStats.recordedGames.includes(activeGameKey)) return;
+  const stats = personalStats.modes[currentMode];
+  if (!answer || !activeGameKey || stats.recordedGames.includes(activeGameKey)) return;
 
   const won = guesses.at(-1)?.solved === true;
-  personalStats.played += 1;
-  personalStats.recordedGames.push(activeGameKey);
-  personalStats.recordedGames = personalStats.recordedGames.slice(-80);
+  stats.played += 1;
+  stats.recordedGames.push(activeGameKey);
+  stats.recordedGames = stats.recordedGames.slice(-120);
 
   if (won) {
-    personalStats.wins += 1;
-    personalStats.currentStreak += 1;
-    personalStats.bestStreak = Math.max(personalStats.bestStreak, personalStats.currentStreak);
-    personalStats.totalWinAttempts += guesses.length;
-    personalStats.distribution[guesses.length - 1] += 1;
+    stats.wins += 1;
+    stats.currentStreak += 1;
+    stats.bestStreak = Math.max(stats.bestStreak, stats.currentStreak);
+    stats.totalWinAttempts += guesses.length;
+    stats.distribution[guesses.length - 1] += 1;
   } else {
-    personalStats.losses += 1;
-    personalStats.currentStreak = 0;
+    stats.losses += 1;
+    stats.currentStreak = 0;
   }
 
   guesses.forEach((guess) => {
-    personalStats.guesses[guess.station.name] = (personalStats.guesses[guess.station.name] || 0) + 1;
+    stats.guesses[guess.station.name] = (stats.guesses[guess.station.name] || 0) + 1;
   });
 
-  personalStats.lastResults.unshift({
+  stats.lastResults.unshift({
     date: new Date().toISOString(),
     mode: currentMode,
+    difficulty: currentMode === "random" ? currentDifficulty : "daily",
     answer: answer.name,
     won,
     attempts: guesses.length
   });
-  personalStats.lastResults = personalStats.lastResults.slice(0, 20);
+  stats.lastResults = stats.lastResults.slice(0, 40);
+
+  if (currentMode === "daily") {
+    personalStats.dailyLocks[getParisDayKey()] = {
+      finished: true,
+      won,
+      attempts: guesses.length,
+      answer: answer.name,
+      guesses,
+      completedAt: new Date().toISOString()
+    };
+  }
 
   savePersonalStats();
 }
 
-function getPersonalTopGuesses() {
-  return Object.entries(personalStats.guesses)
+function getPersonalTopGuesses(mode) {
+  return Object.entries(personalStats.modes[mode].guesses)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
     .slice(0, 8)
     .map(([name, count]) => ({ name, count }));
 }
 
 function loadPersonalStats() {
-  const fallback = {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(personalStatsKey));
+    if (parsed && typeof parsed === "object") {
+      return normalizePersonalStats(parsed);
+    }
+  } catch {
+    // La migration ci-dessous couvrira le cas d'un ancien format valide.
+  }
+
+  try {
+    const legacy = JSON.parse(localStorage.getItem(legacyPersonalStatsKey));
+    if (legacy && typeof legacy === "object") {
+      return migrateLegacyPersonalStats(legacy);
+    }
+  } catch {
+    return createPersonalStats();
+  }
+
+  return createPersonalStats();
+}
+
+function createPersonalStats() {
+  return {
+    version: 2,
+    modes: {
+      daily: createPersonalModeStats(),
+      random: createPersonalModeStats()
+    },
+    dailyLocks: {}
+  };
+}
+
+function createPersonalModeStats() {
+  return {
     played: 0,
     wins: 0,
     losses: 0,
     currentStreak: 0,
     bestStreak: 0,
     totalWinAttempts: 0,
-    distribution: [0, 0, 0, 0, 0, 0],
+    distribution: emptyDistribution(),
     guesses: {},
     lastResults: [],
     recordedGames: []
   };
+}
 
-  try {
-    const parsed = JSON.parse(localStorage.getItem(personalStatsKey));
-    if (!parsed || typeof parsed !== "object") return fallback;
+function normalizePersonalStats(parsed) {
+  const fallback = createPersonalStats();
+  return {
+    ...fallback,
+    ...parsed,
+    modes: {
+      daily: normalizePersonalModeStats(parsed.modes?.daily),
+      random: normalizePersonalModeStats(parsed.modes?.random)
+    },
+    dailyLocks: parsed.dailyLocks && typeof parsed.dailyLocks === "object" ? parsed.dailyLocks : {}
+  };
+}
 
-    return {
-      ...fallback,
-      ...parsed,
-      distribution: Array.isArray(parsed.distribution) && parsed.distribution.length === 6
-        ? parsed.distribution
-        : fallback.distribution,
-      guesses: parsed.guesses && typeof parsed.guesses === "object" ? parsed.guesses : {},
-      lastResults: Array.isArray(parsed.lastResults) ? parsed.lastResults : [],
-      recordedGames: Array.isArray(parsed.recordedGames) ? parsed.recordedGames : []
-    };
-  } catch {
-    return fallback;
+function normalizePersonalModeStats(parsed) {
+  const fallback = createPersonalModeStats();
+  if (!parsed || typeof parsed !== "object") return fallback;
+  return {
+    ...fallback,
+    ...parsed,
+    played: Number(parsed.played) || 0,
+    wins: Number(parsed.wins) || 0,
+    losses: Number(parsed.losses) || 0,
+    currentStreak: Number(parsed.currentStreak) || 0,
+    bestStreak: Number(parsed.bestStreak) || 0,
+    totalWinAttempts: Number(parsed.totalWinAttempts) || 0,
+    distribution: normalizeDistribution(parsed.distribution),
+    guesses: parsed.guesses && typeof parsed.guesses === "object" ? parsed.guesses : {},
+    lastResults: Array.isArray(parsed.lastResults) ? parsed.lastResults : [],
+    recordedGames: Array.isArray(parsed.recordedGames) ? parsed.recordedGames : []
+  };
+}
+
+function migrateLegacyPersonalStats(legacy) {
+  const migrated = createPersonalStats();
+  if (Array.isArray(legacy.lastResults) && legacy.lastResults.length) {
+    legacy.lastResults.slice().reverse().forEach((result, index) => {
+      const mode = result.mode === "daily" ? "daily" : "random";
+      addLegacyResult(migrated.modes[mode], result, index);
+    });
+    return migrated;
   }
+
+  if (legacy.played) {
+    migrated.modes.random = normalizePersonalModeStats({
+      played: legacy.played,
+      wins: legacy.wins,
+      losses: legacy.losses,
+      currentStreak: legacy.currentStreak,
+      bestStreak: legacy.bestStreak,
+      totalWinAttempts: legacy.totalWinAttempts,
+      distribution: legacy.distribution,
+      guesses: legacy.guesses,
+      lastResults: legacy.lastResults,
+      recordedGames: legacy.recordedGames
+    });
+  }
+  return migrated;
+}
+
+function addLegacyResult(stats, result, index) {
+  const attempts = Number(result.attempts) || 0;
+  const won = Boolean(result.won);
+  stats.played += 1;
+  stats.recordedGames.push(`legacy-${index}-${result.date || ""}`);
+  if (won) {
+    stats.wins += 1;
+    stats.currentStreak += 1;
+    stats.bestStreak = Math.max(stats.bestStreak, stats.currentStreak);
+    stats.totalWinAttempts += attempts;
+    if (attempts > 0 && attempts <= stats.distribution.length) {
+      stats.distribution[attempts - 1] += 1;
+    }
+  } else {
+    stats.losses += 1;
+    stats.currentStreak = 0;
+  }
+  stats.lastResults.unshift(result);
+}
+
+function emptyDistribution() {
+  return Array(defaultMaxAttempts).fill(0);
+}
+
+function normalizeDistribution(distribution) {
+  const normalized = Array.isArray(distribution) ? distribution.slice(0, defaultMaxAttempts) : [];
+  while (normalized.length < defaultMaxAttempts) {
+    normalized.push(0);
+  }
+  return normalized;
 }
 
 function savePersonalStats() {
@@ -811,11 +1019,105 @@ function pointsToSmoothPath(points) {
 }
 
 function getDailyStation() {
+  return getDailyStationForKey(getParisDayKey());
+}
+
+function getDailyStationForKey(key) {
   const start = new Date(Date.UTC(2026, 0, 1));
-  const today = new Date();
-  const current = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const [year, month, dayOfMonth] = key.split("-").map(Number);
+  const current = new Date(Date.UTC(year, month - 1, dayOfMonth));
   const day = Math.floor((current - start) / 86400000);
   return stations[((day % stations.length) + stations.length) % stations.length];
+}
+
+function getParisDayKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function pickLocalRandomStation(difficulty) {
+  const pool = stations.filter((station) => stationMatchesDifficulty(station, difficulty));
+  return pool[Math.floor(Math.random() * pool.length)] || stations[Math.floor(Math.random() * stations.length)];
+}
+
+function stationMatchesDifficulty(station, difficulty) {
+  if (difficulty === "any") return true;
+  return getTrafficDifficulty(station) === difficulty;
+}
+
+function getTrafficDifficulty(station) {
+  const ranked = getRankedStationsByTraffic();
+  const index = ranked.findIndex((item) => item.name === station.name);
+  if (index < 0) return "hard";
+
+  const third = Math.ceil(ranked.length / 3);
+  if (index < third) return "easy";
+  if (index < third * 2) return "medium";
+  return "hard";
+}
+
+function getRankedStationsByTraffic() {
+  if (!getRankedStationsByTraffic.cache) {
+    getRankedStationsByTraffic.cache = stations
+      .map((station) => ({
+        name: station.name,
+        score: getPopularityScore(station)
+      }))
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr"));
+  }
+  return getRankedStationsByTraffic.cache;
+}
+
+function getPopularityScore(station) {
+  const traffic = typeof stationTraffic !== "undefined" ? stationTraffic[station.name] : null;
+  if (traffic) return traffic.score;
+
+  return Math.max(0, station.lines.length - 1) * 1500000;
+}
+
+function loadRandomDifficulty() {
+  const stored = localStorage.getItem(randomDifficultyKey);
+  return difficultyLabels[stored] ? stored : "medium";
+}
+
+function setRandomDifficulty(difficulty) {
+  currentDifficulty = difficultyLabels[difficulty] ? difficulty : "medium";
+  localStorage.setItem(randomDifficultyKey, currentDifficulty);
+  renderDifficultyButtons();
+}
+
+function renderDifficultyButtons() {
+  difficultyButtons.forEach((button) => {
+    const selected = button.dataset.difficulty === currentDifficulty;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+}
+
+function renderModeControls() {
+  modeButtons.forEach((button) => {
+    const selected = button.dataset.mode === currentMode;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+  difficultyControl.classList.toggle("is-hidden", currentMode !== "random");
+}
+
+function getPlayerId() {
+  const stored = localStorage.getItem(playerIdKey);
+  if (stored) return stored;
+
+  const next = crypto.randomUUID
+    ? crypto.randomUUID()
+    : `player-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem(playerIdKey, next);
+  return next;
 }
 
 function getShareText() {
@@ -830,7 +1132,7 @@ function getShareText() {
     ].map((status) => status === "hit" ? "🟩" : status === "near" ? "🟨" : "⬛").join("");
   });
 
-  const result = guesses.at(-1)?.solved ? `${guesses.length}/6` : "X/6";
+  const result = guesses.at(-1)?.solved ? `${guesses.length}/${currentMaxAttempts}` : `X/${currentMaxAttempts}`;
   return [`Station Mystère ${result}`, ...rows].join("\n");
 }
 
